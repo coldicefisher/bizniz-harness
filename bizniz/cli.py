@@ -1,0 +1,293 @@
+"""``bizniz`` — command-line surface over the deterministic pipeline tooling.
+
+This is the harness-integration entry point: every subcommand wraps an
+existing deterministic phase (no LLM calls) so that an outer agent —
+Claude Code, a skill, a script — can drive builds, gates, and probes
+without the ``PYTHONPATH=. .venv/bin/python`` incantations.
+
+Subcommands
+-----------
+projects            list generated projects under the projects root
+status <project>    latest run's phase/milestone progress
+up / down <project> compose the generated stack up or down
+smoke <project>     run the deterministic SmokePhase gate (exit 1 on fail)
+test <project>      run tests inside a running service container
+validate <path>     AST symbol/import validation over a workspace
+perf ...            delegate to bizniz.perf_log CLI
+mcp                 launch the Bizniz MCP server (stdio)
+
+``<project>`` accepts either a slug (resolved under
+``$BIZNIZ_PROJECTS_ROOT``, default ``~/bizniz_projects``) or a path.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+
+DEFAULT_PROJECTS_ROOT = Path.home() / "bizniz_projects"
+COMPOSE_REL = Path("infra") / "development" / "docker-compose.yml"
+
+
+# ── project / state resolution ──────────────────────────────────────────
+
+
+def projects_root() -> Path:
+    return Path(os.environ.get("BIZNIZ_PROJECTS_ROOT", str(DEFAULT_PROJECTS_ROOT)))
+
+
+def resolve_project(arg: str) -> Path:
+    """Resolve a slug or path to a project root directory."""
+    p = Path(arg).expanduser()
+    if p.is_dir():
+        return p.resolve()
+    candidate = projects_root() / arg
+    if candidate.is_dir():
+        return candidate.resolve()
+    raise SystemExit(
+        f"error: project '{arg}' not found (not a directory, and "
+        f"{candidate} does not exist)"
+    )
+
+
+def compose_path(project_root: Path) -> Path:
+    path = project_root / COMPOSE_REL
+    if not path.exists():
+        raise SystemExit(f"error: no compose file at {path}")
+    return path
+
+
+def latest_run_dir(project_root: Path) -> Optional[Path]:
+    from bizniz.driver.runs_paths import resolve_runs_root
+
+    runs_root = resolve_runs_root(project_root)
+    if not runs_root.is_dir():
+        return None
+    runs = sorted(d for d in runs_root.iterdir() if d.is_dir())
+    return runs[-1] if runs else None
+
+
+def load_architecture(project_root: Path):
+    """Load the persisted SystemArchitecture from the latest run."""
+    from bizniz.architect.types import SystemArchitecture
+
+    run_dir = latest_run_dir(project_root)
+    if run_dir is None:
+        raise SystemExit(
+            f"error: no runs recorded under {project_root} — "
+            "has the pipeline provisioned this project?"
+        )
+    arch_path = run_dir / "architect.json"
+    if not arch_path.exists():
+        raise SystemExit(f"error: {arch_path} not found")
+    data = json.loads(arch_path.read_text())
+    # Artifacts may be stored bare or wrapped in a payload envelope.
+    if "services" not in data and "payload" in data:
+        data = data["payload"]
+    return SystemArchitecture.model_validate(data)
+
+
+# ── subcommands ─────────────────────────────────────────────────────────
+
+
+def cmd_projects(args: argparse.Namespace) -> int:
+    root = projects_root()
+    if not root.is_dir():
+        print(f"(no projects root at {root})")
+        return 0
+    for proj in sorted(root.iterdir()):
+        if not proj.is_dir():
+            continue
+        run_dir = latest_run_dir(proj)
+        marker = f"last run {run_dir.name}" if run_dir else "no runs"
+        print(f"{proj.name:32s} {marker}")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    project = resolve_project(args.project)
+    run_dir = latest_run_dir(project)
+    if run_dir is None:
+        print(f"{project.name}: no runs recorded")
+        return 1
+    print(f"project:  {project}")
+    print(f"run:      {run_dir.name}")
+    status_path = run_dir / "run_status.json"
+    if status_path.exists():
+        status = json.loads(status_path.read_text())
+        phases = status.get("top_completed") or []
+        print(f"top phases: {', '.join(map(str, phases)) or '(none)'}")
+    for m_dir in sorted(run_dir.glob("m*")):
+        if not m_dir.is_dir():
+            continue
+        m_status_path = m_dir / "status.json"
+        if not m_status_path.exists():
+            continue
+        m_status = json.loads(m_status_path.read_text())
+        completed = m_status.get("completed") or []
+        current = m_status.get("current")
+        done = " DONE" if "done" in [str(c).lower() for c in completed] else ""
+        tail = f", current={current}" if (current and not done) else ""
+        print(f"{m_dir.name}: {len(completed)} completed"
+              f" (last={completed[-1] if completed else 'none'}){tail}{done}")
+    return 0
+
+
+def _compose(project_root: Path, *compose_args: str) -> int:
+    cmd = ["docker", "compose", "-f", str(compose_path(project_root)), *compose_args]
+    return subprocess.call(cmd)
+
+
+def cmd_up(args: argparse.Namespace) -> int:
+    return _compose(resolve_project(args.project), "up", "-d")
+
+
+def cmd_down(args: argparse.Namespace) -> int:
+    return _compose(resolve_project(args.project), "down")
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    from bizniz.driver.smoke_phase import SmokePhase
+    from bizniz.planner.types import Milestone
+
+    project = resolve_project(args.project)
+    architecture = load_architecture(project)
+    auth_contract = None
+    contract_path = project / "AUTH_CONTRACT.md"
+    if contract_path.exists():
+        auth_contract = contract_path.read_text()
+
+    milestone = Milestone(name="cli-smoke", problem_slice="CLI-invoked smoke gate")
+    phase = SmokePhase(
+        timeout_s=args.timeout,
+        on_status=lambda msg: print(msg, file=sys.stderr),
+    )
+    result = phase.run(milestone, architecture, project, auth_contract=auth_contract)
+
+    for check in result.checks:
+        mark = "PASS" if check.passed else "FAIL"
+        code = f" [{check.status_code}]" if check.status_code is not None else ""
+        detail = f" — {check.detail}" if (check.detail and not check.passed) else ""
+        print(f"{mark} {check.category:10s} {check.target}{code}{detail}")
+    print(
+        f"smoke: {'PASSED' if result.passed else 'FAILED'} "
+        f"({len(result.checks)} checks, "
+        f"{len(result.failed_checks)} failed, {result.duration_s:.1f}s)"
+    )
+    for failure in result.critical_failures:
+        print(f"critical: {failure}")
+    return 0 if result.passed else 1
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    project = resolve_project(args.project)
+    test_cmd: List[str] = args.cmd or ["python", "-m", "pytest", "-q"]
+    return _compose(project, "exec", "-T", args.service, *test_cmd)
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    from bizniz.coder.symbol_validator import validate_files
+
+    root = Path(args.path).expanduser()
+    if not root.is_dir():
+        root = resolve_project(args.path)
+    # A project root isn't itself a Python workspace — default to backend/.
+    if not any(root.glob("*.py")) and (root / "backend").is_dir():
+        root = root / "backend"
+    skip_dirs = {".venv", "venv", "node_modules", "__pycache__", ".git"}
+    files = [
+        f for f in root.rglob("*.py")
+        if not (skip_dirs & set(f.relative_to(root).parts[:-1]))
+    ]
+    if not files:
+        print(f"no .py files under {root}")
+        return 1
+    report = validate_files(files, root)
+    print(report.render())
+    print(
+        f"validate: {'PASSED' if report.passed else 'FAILED'} "
+        f"({report.file_count} files, {report.resolved_count} resolved, "
+        f"{len(report.unresolved)} unresolved imports, "
+        f"{len(report.unresolved_attributes)} unresolved attributes, "
+        f"{len(report.syntax_errors)} syntax errors)"
+    )
+    return 0 if report.passed else 1
+
+
+def cmd_perf(args: argparse.Namespace) -> int:
+    from bizniz.perf_log.cli import main as perf_main
+
+    return perf_main(args.perf_args)
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from bizniz.mcp_server.server import main as mcp_main
+
+    return mcp_main()
+
+
+# ── parser ──────────────────────────────────────────────────────────────
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="bizniz",
+        description="Deterministic tooling for the Bizniz pipeline.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("projects", help="list generated projects")
+    p.set_defaults(fn=cmd_projects)
+
+    p = sub.add_parser("status", help="latest run's phase progress")
+    p.add_argument("project", help="project slug or path")
+    p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("up", help="docker compose up -d the generated stack")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_up)
+
+    p = sub.add_parser("down", help="docker compose down the generated stack")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_down)
+
+    p = sub.add_parser("smoke", help="run the deterministic smoke gate")
+    p.add_argument("project")
+    p.add_argument("--timeout", type=float, default=5.0,
+                   help="per-probe timeout seconds (default 5)")
+    p.set_defaults(fn=cmd_smoke)
+
+    p = sub.add_parser("test", help="run tests inside a running service container")
+    p.add_argument("project")
+    p.add_argument("--service", default="backend",
+                   help="compose service name (default: backend)")
+    p.add_argument("cmd", nargs="*",
+                   help="test command (default: python -m pytest -q)")
+    p.set_defaults(fn=cmd_test)
+
+    p = sub.add_parser("validate", help="AST symbol/import validation")
+    p.add_argument("path", help="workspace dir, project slug, or project path")
+    p.set_defaults(fn=cmd_validate)
+
+    p = sub.add_parser("perf", help="perf-log analysis (delegates to bizniz.perf_log)")
+    p.add_argument("perf_args", nargs=argparse.REMAINDER)
+    p.set_defaults(fn=cmd_perf)
+
+    p = sub.add_parser("mcp", help="launch the Bizniz MCP server (stdio)")
+    p.set_defaults(fn=cmd_mcp)
+
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

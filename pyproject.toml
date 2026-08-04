@@ -16,6 +16,10 @@ authors = [
 dynamic = ["dependencies"]
 
 
+[project.scripts]
+bizniz = "bizniz.cli:main"
+
+
 [tool.setuptools]
 packages = ["bizniz"]
 

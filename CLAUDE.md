@@ -498,6 +498,30 @@ by default via `pyproject.toml` `addopts = "-m 'not functional'"`.
 
 ## Commands you'll need
 
+### `bizniz` CLI (harness tooling — NEW 2026-08-04)
+
+Installed via `pip install -e .` (`[project.scripts]` → `bizniz.cli:main`).
+Wraps the deterministic phases so an outer agent (Claude Code, a skill,
+a script) can drive builds without PYTHONPATH incantations. `<project>`
+accepts a slug (resolved under `$BIZNIZ_PROJECTS_ROOT`, default
+`~/bizniz_projects`) or a path. Gate commands exit non-zero on failure.
+
+```bash
+bizniz projects                  # list generated projects + last run
+bizniz status <project>          # latest run's phase/milestone progress
+bizniz up <project>              # docker compose up -d the stack
+bizniz down <project>            # docker compose down
+bizniz smoke <project>           # deterministic SmokePhase gate (exit 1 on fail)
+bizniz test <project> [--service backend] [cmd...]  # tests in running container
+bizniz validate <path|project>   # AST symbol/import validation (exit 1 on fail)
+bizniz perf <args...>            # delegates to bizniz.perf_log CLI
+bizniz mcp                       # launch the Bizniz MCP server (stdio)
+```
+
+Inside this repo use `.venv/bin/bizniz ...`. Tests: `bizniz/tests/test_cli.py`.
+
+### Pipeline entry point
+
 **Canonical entry point: `examples/v2_build.py`.** The older
 `examples/auto_architect.py` and friends predate the v2.5 refactor
 (2026-05-06) and broke when modules moved; they live in
