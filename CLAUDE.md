@@ -531,7 +531,21 @@ Claude-native layer on top of the CLI (NEW 2026-08-04):
 - **`.claude/skills/bizniz-fix/SKILL.md`** — `/bizniz-fix <project>`:
   gate-driven convergence loop (up → smoke/validate/test → cluster →
   dispatch bizniz-coder per root cause → restart → re-gate; stall
-  detection after 2 no-progress iterations).
+  detection after 2 no-progress iterations; diff-audit every dispatch).
+  Live-validated 2026-08-04: converged recipe_v4_v16 79→1 defects in
+  37 min where the v5 repair loop had stalled. Narrative:
+  `docs/changes/2026-08-04_claude_harness_fix_loop_v16.md`.
+- **`.claude/agents/bizniz-code-reviewer.md`** +
+  **`bizniz-quality-engineer.md`** (both Opus-pinned) — CR cold-reads
+  source for hallucinations/ungated-auth/missing-error-cases; QE
+  reviews tests-vs-spec behind the bias firewall (never reads source).
+- **`.claude/agents/bizniz-architect.md`** (Opus) — decomposes a
+  problem statement into SystemArchitecture JSON; strict no-overbuild
+  infra rules; Provisioner still materializes.
+- **`.claude/skills/bizniz-review/SKILL.md`** — `/bizniz-review
+  <project>`: parallel CR+QE per service + deterministic gates,
+  merged into one clustered defect report (read-only; feed to
+  /bizniz-fix).
 
 ### Pipeline entry point
 
