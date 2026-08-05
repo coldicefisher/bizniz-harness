@@ -48,8 +48,22 @@ _PROJECT_ROOT_ENV = "BIZNIZ_PROJECT_ROOT"
 _JOB_ID_ENV = "BIZNIZ_JOB_ID"
 
 
-def _project_root() -> Path:
-    """Resolve the project root from env or fall back to CWD."""
+def _project_root(project: Optional[str] = None) -> Path:
+    """Resolve the project root.
+
+    Priority: explicit ``project`` argument (slug under the projects
+    root, or a path — same resolution as the ``bizniz`` CLI) →
+    ``BIZNIZ_PROJECT_ROOT`` env var (the per-issue Coder launch path) →
+    CWD. Raises ``ValueError`` when an explicit ``project`` doesn't
+    resolve, so tools surface a clean error dict instead of silently
+    reading the wrong directory.
+    """
+    if project:
+        from bizniz.cli import find_project
+        found = find_project(project)
+        if found is None:
+            raise ValueError(f"project '{project}' not found")
+        return found
     val = os.environ.get(_PROJECT_ROOT_ENV)
     if val:
         return Path(val).expanduser().resolve()
@@ -97,10 +111,18 @@ mcp = FastMCP("bizniz")
         "defaults to 1 (M1)."
     ),
 )
-def get_prior_issues(milestone: int = 1, service: Optional[str] = None) -> list[dict]:
+def get_prior_issues(
+    milestone: int = 1,
+    service: Optional[str] = None,
+    project: Optional[str] = None,
+) -> list[dict]:
     """Query coder_issues DB rows for ``milestone``. Optionally filter
-    by ``service`` (e.g. ``backend``, ``frontend``)."""
-    root = _project_root()
+    by ``service`` (e.g. ``backend``, ``frontend``). ``project`` is a
+    slug or path; defaults to the env/CWD project."""
+    try:
+        root = _project_root(project)
+    except ValueError as e:
+        return [{"error": str(e)}]
     db_path = root / ".bizniz" / "project.db"
     if not db_path.exists():
         return [{"error": f"project DB not found at {db_path}"}]
@@ -146,10 +168,15 @@ def get_prior_issues(milestone: int = 1, service: Optional[str] = None) -> list[
         "another issue's tests already covered."
     ),
 )
-def get_issue_test_output(issue_id: str, milestone: int = 1) -> dict:
+def get_issue_test_output(
+    issue_id: str, milestone: int = 1, project: Optional[str] = None,
+) -> dict:
     """Return ``{issue_id, status, output}`` for ``issue_id`` in
     ``milestone``. Returns ``{error}`` if not found."""
-    root = _project_root()
+    try:
+        root = _project_root(project)
+    except ValueError as e:
+        return {"error": str(e)}
     db_path = root / ".bizniz" / "project.db"
     if not db_path.exists():
         return {"error": f"project DB not found at {db_path}"}
@@ -185,11 +212,16 @@ def get_issue_test_output(issue_id: str, milestone: int = 1) -> dict:
         "to discover an unresolved import."
     ),
 )
-def validate_python_imports(file_paths: list[str]) -> dict:
+def validate_python_imports(
+    file_paths: list[str], project: Optional[str] = None,
+) -> dict:
     """Run ``bizniz.coder.symbol_validator.validate_files`` over the
-    given workspace-relative paths. Resolves them under
-    ``BIZNIZ_PROJECT_ROOT``."""
-    root = _project_root()
+    given workspace-relative paths. Resolves them under ``project``
+    (slug or path) or ``BIZNIZ_PROJECT_ROOT``."""
+    try:
+        root = _project_root(project)
+    except ValueError as e:
+        return {"error": str(e)}
     # Inserting the bizniz repo path lets the validator import. We
     # assume the env's PYTHONPATH already has bizniz; otherwise the
     # MCP server itself wouldn't have started.
@@ -241,10 +273,15 @@ def validate_python_imports(file_paths: list[str]) -> dict:
         "flagged. Returns ``{coverage, code_review}`` or ``{error}``."
     ),
 )
-def read_audit_findings(milestone: int = 1) -> dict:
+def read_audit_findings(
+    milestone: int = 1, project: Optional[str] = None,
+) -> dict:
     """Read the most recent review artifact for ``milestone``. Tries
     ``review_final.json`` first, falls back to ``review_initial.json``."""
-    root = _project_root()
+    try:
+        root = _project_root(project)
+    except ValueError as e:
+        return {"error": str(e)}
     run_dir = _resolve_run_dir(root)
     if run_dir is None:
         return {"error": "no run dir found under docs/runs/"}
@@ -269,9 +306,12 @@ def read_audit_findings(milestone: int = 1) -> dict:
         "or JWT validation flows."
     ),
 )
-def read_auth_contract() -> dict:
+def read_auth_contract(project: Optional[str] = None) -> dict:
     """Return ``{contract: str}`` or ``{error: str}``."""
-    root = _project_root()
+    try:
+        root = _project_root(project)
+    except ValueError as e:
+        return {"error": str(e)}
     p = root / "AUTH_CONTRACT.md"
     if not p.exists():
         return {"error": f"AUTH_CONTRACT.md not at {p}"}

@@ -520,6 +520,19 @@ bizniz mcp                       # launch the Bizniz MCP server (stdio)
 
 Inside this repo use `.venv/bin/bizniz ...`. Tests: `bizniz/tests/test_cli.py`.
 
+Claude-native layer on top of the CLI (NEW 2026-08-04):
+
+- **`.mcp.json`** — launches `bizniz mcp` per session; all five MCP
+  tools now take an optional `project` param (slug or path), so they
+  work session-wide, not just per-issue.
+- **`.claude/agents/bizniz-coder.md`** — the v2.5 Coder prompt ported
+  to a Claude Code subagent (Haiku-pinned). Dispatch with project
+  root + workspace + issue + files in scope + gate command.
+- **`.claude/skills/bizniz-fix/SKILL.md`** — `/bizniz-fix <project>`:
+  gate-driven convergence loop (up → smoke/validate/test → cluster →
+  dispatch bizniz-coder per root cause → restart → re-gate; stall
+  detection after 2 no-progress iterations).
+
 ### Pipeline entry point
 
 **Canonical entry point: `examples/v2_build.py`.** The older

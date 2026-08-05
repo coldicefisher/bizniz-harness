@@ -41,18 +41,26 @@ def projects_root() -> Path:
     return Path(os.environ.get("BIZNIZ_PROJECTS_ROOT", str(DEFAULT_PROJECTS_ROOT)))
 
 
-def resolve_project(arg: str) -> Path:
-    """Resolve a slug or path to a project root directory."""
+def find_project(arg: str) -> Optional[Path]:
+    """Resolve a slug or path to a project root, or None if not found."""
     p = Path(arg).expanduser()
     if p.is_dir():
         return p.resolve()
     candidate = projects_root() / arg
     if candidate.is_dir():
         return candidate.resolve()
-    raise SystemExit(
-        f"error: project '{arg}' not found (not a directory, and "
-        f"{candidate} does not exist)"
-    )
+    return None
+
+
+def resolve_project(arg: str) -> Path:
+    """Like :func:`find_project` but exits with an error message."""
+    found = find_project(arg)
+    if found is None:
+        raise SystemExit(
+            f"error: project '{arg}' not found (not a directory, and "
+            f"not a slug under {projects_root()})"
+        )
+    return found
 
 
 def compose_path(project_root: Path) -> Path:
