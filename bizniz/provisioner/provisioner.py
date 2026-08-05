@@ -213,7 +213,17 @@ class Provisioner:
         project.dev_root.mkdir(parents=True, exist_ok=True)
         compose_path.write_text(compose_yaml)
         env_path.write_text(env_text)
-        log("Provisioner: wrote docker-compose.yml and .env")
+        # Host-only vars (host-perspective URLs etc.) go to .env.host,
+        # which no compose service references — containers must never
+        # see host-perspective addresses.
+        host_env = self._collect_host_env_vars(template_outputs)
+        if host_env:
+            host_lines = ["# Host-side tooling only — NOT loaded into containers"]
+            host_lines += [f"{k}={v}" for k, v in sorted(host_env.items())]
+            (project.dev_root / ".env.host").write_text(
+                "\n".join(host_lines) + "\n"
+            )
+        log("Provisioner: wrote docker-compose.yml, .env and .env.host")
 
         # 8. Build images per reconciled action.
         if self._build_images:
@@ -893,6 +903,15 @@ class Provisioner:
         env: Dict[str, str] = {}
         for out in template_outputs.values():
             env.update(out.env_vars)
+        return env
+
+    @staticmethod
+    def _collect_host_env_vars(
+        template_outputs: Dict[str, TemplateOutput],
+    ) -> Dict[str, str]:
+        env: Dict[str, str] = {}
+        for out in template_outputs.values():
+            env.update(out.host_env_vars)
         return env
 
     # ── Docker introspection / pruning ────────────────────────────────────────

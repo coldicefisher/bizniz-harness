@@ -109,14 +109,18 @@ def _resolve_fa_endpoint(project_root: Path) -> tuple[str, str]:
     generated infra/.env. Falls back to env vars if the file isn't there
     (e.g., in tests). The provisioner emits these every run.
     """
-    env_path = project_root / "infra" / "development" / ".env"
     url = ""
     key = ""
-    if env_path.exists():
+    # .env.host carries host-perspective vars since 2026-08-04; .env
+    # covers container vars + legacy projects.
+    for env_name in (".env.host", ".env"):
+        env_path = project_root / "infra" / "development" / env_name
+        if not env_path.exists():
+            continue
         for line in env_path.read_text().splitlines():
-            if line.startswith("FUSIONAUTH_HOST_URL="):
+            if line.startswith("FUSIONAUTH_HOST_URL=") and not url:
                 url = line.split("=", 1)[1].strip()
-            elif line.startswith("FUSIONAUTH_API_KEY="):
+            elif line.startswith("FUSIONAUTH_API_KEY=") and not key:
                 key = line.split("=", 1)[1].strip()
     return (
         url or os.environ.get("FUSIONAUTH_HOST_URL", "http://localhost:9011"),
@@ -297,13 +301,16 @@ def _seed_fa_env_from_project(project_root: Path) -> None:
     process env so pipeline-internal helpers (``_resolve_fa_tenant_id``)
     can query the running FA without explicit args.
     """
-    env_path = project_root / "infra" / "development" / ".env"
-    if not env_path.exists():
-        return
-    for line in env_path.read_text().splitlines():
-        if line.startswith("FUSIONAUTH_") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k, v.strip())
+    # .env.host first (host-perspective vars win for host-side tooling);
+    # .env second for container vars + legacy projects.
+    for env_name in (".env.host", ".env"):
+        env_path = project_root / "infra" / "development" / env_name
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text().splitlines():
+            if line.startswith("FUSIONAUTH_") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k, v.strip())
 
 
 def _project_root(project_slug: str) -> Path:

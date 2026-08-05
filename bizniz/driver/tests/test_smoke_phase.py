@@ -235,3 +235,53 @@ class TestFrontendProbes:
         assert any(
             "frontend_index" in f for f in result.critical_failures
         )
+
+
+class TestSpaPathProbes:
+    """SPA-called-path extraction + probing (v16 blind-spot fix)."""
+
+    def _frontend_ws(self, tmp_path: Path) -> Path:
+        src = tmp_path / "frontend" / "src"
+        (src / "lib").mkdir(parents=True)
+        (src / "lib" / "api.ts").write_text(
+            'const API_BASE = "/api/v1";\n'
+            'export const me = () => fetch("/api/v1/me");\n'
+            'export const login = (b) => fetch("/api/v1/auth/login", b);\n'
+            'export const search = (q) => fetch(`/api/v1/docs/search?q=${q}`);\n'
+            'export const item = (s) => fetch(`/api/v1/docs/${s}`);\n'
+        )
+        (src / "lib" / "api.test.ts").write_text(
+            'fetch("/api/test/mock-only");\n'
+        )
+        (src / "routes").mkdir()
+        (src / "routes" / "docs.tsx").write_text(
+            'const pattern = "/api/v1/docs/*";\n'
+        )
+        return tmp_path / "frontend"
+
+    def test_extracts_real_calls_only(self, tmp_path):
+        from bizniz.driver.smoke_phase import _extract_spa_api_paths
+        paths = _extract_spa_api_paths(self._frontend_ws(tmp_path))
+        assert "/api/v1/me" in paths
+        assert "/api/v1/auth/login" in paths
+        # Query string stripped from template literal without ${ in path part
+        assert "/api/v1/docs/search" in paths
+        # Excluded: test files, glob literals, interpolated paths, base consts
+        assert not any("mock-only" in p for p in paths)
+        assert not any("*" in p for p in paths)
+        assert "/api/v1" not in paths
+        assert not any("${" in p for p in paths)
+
+    def test_missing_src_returns_empty(self, tmp_path):
+        from bizniz.driver.smoke_phase import _extract_spa_api_paths
+        assert _extract_spa_api_paths(tmp_path / "nope") == []
+
+    def test_404_fails_and_405_passes(self):
+        from bizniz.driver.smoke_phase import SmokePhase
+        phase = SmokePhase()
+        for status, should_pass in ((404, False), (405, True), (401, True), (500, False)):
+            with patch("bizniz.driver.smoke_phase.requests.get") as g:
+                g.return_value = MagicMock(status_code=status, text="")
+                check = phase._probe_spa_path("frontend", "http://x", "/api/v1/me")
+            assert check.passed is should_pass, f"status={status}"
+            assert check.category == "spa_path"

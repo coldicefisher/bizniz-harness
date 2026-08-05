@@ -410,3 +410,106 @@ class TestAttributeAccess:
         )
         report = validate_files([ok], ws)
         assert report.passed
+
+
+class TestFrameworkAttributeFalsePositives:
+    """Regression tests for the v16 false positives (2026-08-04):
+    framework members and dunders on indexed classes were flagged."""
+
+    def _make_pydantic_model(self, ws: Path):
+        mod = ws / "app" / "schemas"
+        mod.mkdir(parents=True, exist_ok=True)
+        (mod / "user.py").write_text(
+            "from pydantic import BaseModel\n"
+            "class SignUpRequest(BaseModel):\n"
+            "    email: str\n"
+            "    password: str\n"
+        )
+
+    def _make_sqla_model(self, ws: Path):
+        mod = ws / "app" / "models"
+        mod.mkdir(parents=True, exist_ok=True)
+        (mod / "base.py").write_text(
+            "class Base:\n"
+            "    pass\n"
+        )
+        (mod / "user.py").write_text(
+            "from app.models.base import Base\n"
+            "class User(Base):\n"
+            "    __tablename__ = 'users'\n"
+            "    id: str\n"
+            "    email: str\n"
+        )
+
+    def test_pydantic_classmethods_not_flagged(self, tmp_path):
+        ws = _ws(tmp_path)
+        self._make_pydantic_model(ws)
+        f = ws / "app" / "routes.py"
+        f.write_text(
+            "from app.schemas.user import SignUpRequest\n"
+            "def parse(raw: dict):\n"
+            "    SignUpRequest.model_rebuild()\n"
+            "    return SignUpRequest.model_validate(raw)\n"
+        )
+        report = validate_files([f], ws)
+        assert report.passed, report.render()
+
+    def test_dunder_access_never_flagged(self, tmp_path):
+        ws = _ws(tmp_path)
+        self._make_sqla_model(ws)
+        f = ws / "app" / "check.py"
+        f.write_text(
+            "from app.models.user import User\n"
+            "def table_name():\n"
+            "    return User.__tablename__\n"
+        )
+        report = validate_files([f], ws)
+        assert report.passed, report.render()
+
+    def test_methods_are_indexed_attributes(self, tmp_path):
+        ws = _ws(tmp_path)
+        mod = ws / "app"
+        mod.mkdir(parents=True, exist_ok=True)
+        (mod / "svc.py").write_text(
+            "class Repo:\n"
+            "    url: str\n"
+            "    def clone(self):\n"
+            "        return self.url\n"
+        )
+        f = ws / "app" / "use.py"
+        f.write_text(
+            "from app.svc import Repo\n"
+            "r = Repo()\n"
+            "x = r.clone()\n"
+        )
+        report = validate_files([f], ws)
+        assert report.passed, report.render()
+
+    def test_real_bogus_attribute_still_flagged(self, tmp_path):
+        ws = _ws(tmp_path)
+        self._make_pydantic_model(ws)
+        f = ws / "app" / "routes.py"
+        f.write_text(
+            "from app.schemas.user import SignUpRequest\n"
+            "def parse(raw: dict):\n"
+            "    return SignUpRequest.model_validate_everything(raw)\n"
+        )
+        report = validate_files([f], ws)
+        assert not report.passed
+        assert any(
+            a.attribute == "model_validate_everything"
+            for a in report.unresolved_attributes
+        )
+
+    def test_bogus_instance_attr_on_sqla_model_still_flagged(self, tmp_path):
+        ws = _ws(tmp_path)
+        self._make_sqla_model(ws)
+        f = ws / "app" / "use.py"
+        f.write_text(
+            "from app.models.user import User\n"
+            "u = User()\n"
+            "x = u.emial\n"
+        )
+        report = validate_files([f], ws)
+        assert not report.passed
+        assert any(a.attribute == "emial" for a in report.unresolved_attributes)

@@ -64,7 +64,15 @@ class TemplateOutput:
         ``project_root/<workspace_name>/``
       - infra_files: {relative_path: content} written under
         ``project_root/infra/development/<workspace_name>/``
-      - env_vars: {KEY: value} merged into ``.env``
+      - env_vars: {KEY: value} merged into ``.env`` (fed to every
+        container via ``env_file`` — values MUST be container-valid)
+      - host_env_vars: {KEY: value} merged into ``.env.host`` — read
+        by HOST-side tooling only (driver, smoke, debuggers), never
+        by containers. Use for host-perspective URLs (e.g.
+        ``http://localhost:<host_port>``): putting those in ``.env``
+        hands containers unreachable addresses (v16 lesson —
+        FUSIONAUTH_HOST_URL leaked into the backend and generated
+        test code trusted it).
       - depends_on_services: extra services this template wants present
         (e.g. fusionauth needs postgres). The provisioner enforces this.
     """
@@ -74,6 +82,7 @@ class TemplateOutput:
     workspace_files: Dict[str, str] = field(default_factory=dict)
     infra_files: Dict[str, str] = field(default_factory=dict)
     env_vars: Dict[str, str] = field(default_factory=dict)
+    host_env_vars: Dict[str, str] = field(default_factory=dict)
     depends_on_services: List[str] = field(default_factory=list)
 
 

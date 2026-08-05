@@ -248,7 +248,6 @@ class FusionAuthTemplate(InfraTemplate):
             "FUSIONAUTH_API_KEY": api_key,
             "FUSIONAUTH_APPLICATION_ID": self.APPLICATION_ID,
             "FUSIONAUTH_ISSUER": issuer,
-            "FUSIONAUTH_HOST_URL": f"http://localhost:{host_port}",
         }
 
         return TemplateOutput(
@@ -259,5 +258,11 @@ class FusionAuthTemplate(InfraTemplate):
                     json.dumps(kickstart, indent=2) + "\n",
             },
             env_vars=env_vars,
+            # Host-perspective URL for driver/smoke/debugger tooling.
+            # NOT container-valid — localhost inside a container is
+            # the container itself.
+            host_env_vars={
+                "FUSIONAUTH_HOST_URL": f"http://localhost:{host_port}",
+            },
             depends_on_services=[pg_name],
         )

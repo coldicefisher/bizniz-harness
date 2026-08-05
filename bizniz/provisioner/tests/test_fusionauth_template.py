@@ -180,3 +180,17 @@ def test_admin_email_handles_pathological_slug():
     domain = email.split("@", 1)[1]
     assert "_" not in domain
     assert domain  # not empty
+
+
+def test_host_url_is_host_only_env_var():
+    """FUSIONAUTH_HOST_URL is host-perspective (http://localhost:<port>)
+    and must NOT reach containers via .env — v16 lesson: generated test
+    code trusted it inside the backend container and got connection
+    refused. It belongs in host_env_vars (written to .env.host)."""
+    out = FusionAuthTemplate().render(_ctx(_service()))
+    assert "FUSIONAUTH_HOST_URL" not in out.env_vars
+    assert out.host_env_vars.get("FUSIONAUTH_HOST_URL", "").startswith(
+        "http://localhost:"
+    )
+    # Container-facing URL stays in .env.
+    assert out.env_vars.get("FUSIONAUTH_URL", "").startswith("http://auth:")

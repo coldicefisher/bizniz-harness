@@ -27,6 +27,7 @@ on critical failures (auth login, health) and warns on route 5xxs.
 """
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -58,6 +59,47 @@ class SmokePhaseResult(BaseModel):
     @property
     def failed_checks(self) -> List[SmokeCheck]:
         return [c for c in self.checks if not c.passed]
+
+
+_SPA_PATH_RE = re.compile(r"""(["'`])(/api/[^"'`]*)\1""")
+_SPA_SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx")
+_SPA_SKIP_MARKERS = (".test.", ".spec.", "__mocks__", "/tests/", "/test/")
+_SPA_MAX_PATHS = 25
+
+
+def _extract_spa_api_paths(frontend_workspace: Path) -> List[str]:
+    """Collect literal /api/* paths the frontend source actually calls.
+
+    Scans ``src/`` for quoted string literals starting with ``/api/``,
+    excluding test files and mocks (those encode fixtures, not the
+    product surface) and interpolated templates (can't probe a path we
+    can't resolve statically). Deduped, sorted, capped at
+    ``_SPA_MAX_PATHS`` so smoke stays fast.
+    """
+    src = frontend_workspace / "src"
+    if not src.is_dir():
+        return []
+    paths: set = set()
+    for f in src.rglob("*"):
+        if f.suffix not in _SPA_SOURCE_SUFFIXES:
+            continue
+        rel = "/" + str(f.relative_to(src)).replace("\\", "/")
+        if any(m in rel or m in f.name for m in _SPA_SKIP_MARKERS):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        for m in _SPA_PATH_RE.finditer(text):
+            path = m.group(2).split("?", 1)[0].rstrip("/")
+            if not path or "${" in path or " " in path or "*" in path:
+                continue
+            # Bare base-path constants (``/api``, ``/api/v1``) aren't
+            # callable routes — probing them only yields noise.
+            if re.fullmatch(r"/api(/v\d+)?", path):
+                continue
+            paths.add(path)
+    return sorted(paths)[:_SPA_MAX_PATHS]
 
 
 class SmokePhase:
@@ -262,6 +304,25 @@ class SmokePhase:
             # Non-critical: SPAs may legitimately render forms in JS
             # only (no <input> in initial HTML). Treat as warning.
 
+            # ── SPA-called API paths through the proxy ──────────────
+            # v16 lesson: smoke probed only OpenAPI-registered routes,
+            # so it certified /api/v1/api/me while the SPA's actual
+            # /api/me call 404'd in production. Probe the paths the
+            # frontend SOURCE really fetches, through the frontend's
+            # own proxy — the same trip the browser takes. 404 = the
+            # SPA calls a route that doesn't exist = critical.
+            spa_paths = _extract_spa_api_paths(
+                project_root / frontend.workspace_name
+            )
+            for path in spa_paths:
+                spa_check = self._probe_spa_path(frontend.name, base, path)
+                checks.append(spa_check)
+                if not spa_check.passed:
+                    critical_failures.append(
+                        f"spa_path[{frontend.name}] {spa_check.target}: "
+                        f"{spa_check.detail}"
+                    )
+
         passed = len(critical_failures) == 0
         duration = time.time() - t0
         self._log(
@@ -277,6 +338,42 @@ class SmokePhase:
         )
 
     # ── Frontend probes ────────────────────────────────────────────────
+
+    def _probe_spa_path(
+        self, service_name: str, base: str, path: str,
+    ) -> SmokeCheck:
+        """GET an API path the SPA source actually calls, through the
+        frontend proxy. Pass = the route EXISTS: any status except 404
+        (401/403/422 mean it exists and gated/validated; 405 means it
+        exists but is POST-only; 5xx is caught as its own failure).
+        """
+        url = base + path
+        try:
+            resp = requests.get(url, timeout=self._timeout_s)
+        except Exception as e:
+            return SmokeCheck(
+                name=f"spa_path:{service_name}:{path}",
+                category="spa_path",
+                target=url,
+                passed=False,
+                detail=f"{type(e).__name__}: {e}",
+            )
+        exists = resp.status_code != 404
+        healthy = resp.status_code < 500
+        ok = exists and healthy
+        return SmokeCheck(
+            name=f"spa_path:{service_name}:{path}",
+            category="spa_path",
+            target=url,
+            passed=ok,
+            status_code=resp.status_code,
+            detail=(
+                "ok" if ok else
+                "SPA calls this path but the stack returns 404 — "
+                "route missing or misprefixed" if not exists else
+                f"5xx from SPA-called path: {resp.status_code}"
+            ),
+        )
 
     def _probe_frontend_index(
         self, service_name: str, base: str,

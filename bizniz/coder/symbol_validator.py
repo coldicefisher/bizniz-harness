@@ -246,6 +246,35 @@ def _resolve(
     )
 
 
+# Members inherited from framework base classes that can't be indexed
+# by walking workspace source. Keyed by base-class SHORT name as it
+# appears in a ``class X(Base):`` clause. Dunder members are omitted —
+# dunder attribute access is never flagged at all (see the flag loop).
+_PYDANTIC_MODEL_MEMBERS: Set[str] = {
+    # v2 API
+    "model_validate", "model_validate_json", "model_validate_strings",
+    "model_dump", "model_dump_json", "model_construct", "model_copy",
+    "model_rebuild", "model_json_schema", "model_fields", "model_config",
+    "model_fields_set", "model_extra", "model_post_init",
+    # v1 legacy names still shipped by pydantic v2
+    "dict", "json", "copy", "construct", "parse_obj", "parse_raw",
+    "schema", "schema_json", "validate", "update_forward_refs",
+}
+
+_FRAMEWORK_BASE_MEMBERS: Dict[str, Set[str]] = {
+    "BaseModel": _PYDANTIC_MODEL_MEMBERS,
+    "BaseSettings": _PYDANTIC_MODEL_MEMBERS,
+    # SQLAlchemy declarative bases (non-dunder members; __tablename__
+    # etc. are covered by the dunder skip).
+    "Base": {"metadata", "registry"},
+    "DeclarativeBase": {"metadata", "registry"},
+    # Enum members accessed on instances.
+    "Enum": {"name", "value"},
+    "IntEnum": {"name", "value"},
+    "StrEnum": {"name", "value"},
+}
+
+
 @dataclass
 class WorkspaceClassIndex:
     """Index of known classes in the workspace, used for attribute-
@@ -270,7 +299,8 @@ class WorkspaceClassIndex:
 
     def fields_for(self, class_qualname: str) -> Set[str]:
         """Field set including inherited fields (best-effort; bases
-        that aren't in the index just contribute nothing)."""
+        that aren't in the index contribute their framework members
+        when recognized, else nothing)."""
         seen: Set[str] = set()
         stack = [class_qualname]
         visited: Set[str] = set()
@@ -281,6 +311,12 @@ class WorkspaceClassIndex:
             visited.add(cur)
             seen |= self.fields_by_class.get(cur, set())
             for base in self.bases_by_class.get(cur, []):
+                # Framework bases live outside the workspace — their
+                # members can't be indexed by walking source, so a
+                # known-members map fills the gap (v16 lesson:
+                # ``model_validate``/``model_rebuild`` on pydantic
+                # models were flagged as unresolved).
+                seen |= _FRAMEWORK_BASE_MEMBERS.get(base, set())
                 # Resolve short name to qualname best-effort.
                 if base in self.fields_by_class:
                     stack.append(base)
@@ -343,9 +379,18 @@ def _build_class_index(workspace_root: Path) -> WorkspaceClassIndex:
                     if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                         fields.add(item.target.id)
                     elif isinstance(item, ast.Assign):
+                        # Include underscored names too — the index
+                        # answers "does this attribute exist", not
+                        # "is it public" (v16: ``__tablename__ = ...``
+                        # was excluded, so class-level access flagged).
                         for t in item.targets:
-                            if isinstance(t, ast.Name) and not t.id.startswith("_"):
+                            if isinstance(t, ast.Name):
                                 fields.add(t.id)
+                    elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        # Methods and properties are attributes too —
+                        # without this, any method call on an indexed
+                        # class false-positives.
+                        fields.add(item.name)
                 idx.fields_by_class[qualname] = fields
                 idx.bases_by_class[qualname] = bases
                 idx.qualnames_by_shortname.setdefault(
@@ -469,6 +514,13 @@ def _validate_attributes_in_file(
         if not isinstance(node, ast.Attribute):
             continue
         if not isinstance(node.value, ast.Name):
+            continue
+        # Never flag dunder access: every class inherits dozens of
+        # dunders from object/metaclasses that no source index can
+        # enumerate, and dunder typos are rare. False-positive cost
+        # dominates (v16: ``User.__tablename__`` flagged on a
+        # SQLAlchemy model).
+        if node.attr.startswith("__") and node.attr.endswith("__"):
             continue
         var = node.value.id
         cls = var_to_class.get(var)

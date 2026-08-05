@@ -58,6 +58,22 @@ N test failures per service. These are the progress metric.
     the gate, and if the gate still fails, the cluster's root-cause
     analysis was wrong — re-cluster instead of re-dispatching the
     same prompt.
+11. **Diff-audit every dispatch before accepting it** (v16 lesson).
+    Generated projects have git — `git diff` the fixer's claimed
+    files AND `git status` for unclaimed ones. Subagent scope
+    constraints are advisory; the audit is the enforcement. Look
+    especially for: files outside the declared scope, broad
+    `except`, and fixes that map error classes wholesale (a fixer
+    once turned ANY auth-provider 500 into 409 "duplicate email" —
+    plausible gate-green, real error-masking). Send the SAME agent
+    back with a tightening requirement rather than re-dispatching
+    fresh — it keeps its context.
+12. **URL rewrites: name the service every URL belongs to** (v16
+    lesson). When a fix renames paths on service X, URLs in the same
+    files that target OTHER services (auth provider, worker, db
+    admin) keep THEIR OWN paths. Dispatch prompts doing path
+    canonicalization must say this explicitly, or the fixer will
+    sweep foreign-host URLs into the rename.
 
 ## Wrap-up
 

@@ -883,16 +883,21 @@ class V2Pipeline:
         # initial seed runs at startup before provision, so on a fresh
         # project the env is empty until now.
         slug = self._project_name
-        env_path = (
+        dev_root = (
             Path(os.environ.get("BIZNIZ_PROJECTS_ROOT")
                  or str(Path.home() / "bizniz_projects"))
-            / slug / "infra" / "development" / ".env"
+            / slug / "infra" / "development"
         )
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("FUSIONAUTH_") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k, v.strip())
+        # .env.host first: host-perspective vars (FUSIONAUTH_HOST_URL)
+        # live there since 2026-08-04; .env second covers container
+        # vars AND legacy projects whose .env still carries host vars.
+        for env_name in (".env.host", ".env"):
+            env_path = dev_root / env_name
+            if env_path.exists():
+                for line in env_path.read_text().splitlines():
+                    if line.startswith("FUSIONAUTH_") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k, v.strip())
 
         fa_url = os.environ.get("FUSIONAUTH_HOST_URL")
         api_key = os.environ.get("FUSIONAUTH_API_KEY") or ""
