@@ -512,8 +512,12 @@ bizniz status <project>          # latest run's phase/milestone progress
 bizniz up <project>              # docker compose up -d the stack
 bizniz down <project>            # docker compose down
 bizniz smoke <project>           # deterministic SmokePhase gate (exit 1 on fail)
+bizniz smoke <project> --service mobile [--avd bizniz] [--skip-build]
+                                 # mobile smoke: release build + adb install
+                                 #   + maestro (emulator auto-boot by AVD name)
 bizniz test <project> [--service backend] [cmd...]  # tests in running container
-bizniz validate <path|project>   # AST symbol/import validation (exit 1 on fail)
+                                 # (Expo workspaces: jest host-side instead)
+bizniz validate <path|project>   # AST validation; Expo workspaces: tsc + lint
 bizniz perf <args...>            # delegates to bizniz.perf_log CLI
 bizniz mcp                       # launch the Bizniz MCP server (stdio)
 ```

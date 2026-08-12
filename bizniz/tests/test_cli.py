@@ -201,3 +201,81 @@ def test_test_command_default_and_override():
         ["test", "proj", "--service", "frontend", "npm", "test"]
     )
     assert args.cmd == ["npm", "test"]
+
+
+class TestMobileGateRouting:
+    """CLI verbs route Expo workspaces to mobile gates (2026-08-10)."""
+
+    def _expo_ws(self, project: Path, name: str = "mobile") -> Path:
+        ws = project / name
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "package.json").write_text(
+            json.dumps({"dependencies": {"expo": "~57.0.0"}})
+        )
+        return ws
+
+    def test_is_expo_workspace_detection(self, project: Path):
+        from bizniz.mobile_gates import is_expo_workspace
+        ws = self._expo_ws(project)
+        assert is_expo_workspace(ws)
+        assert not is_expo_workspace(project)  # no package.json
+        py_ws = project / "backend"
+        py_ws.mkdir(exist_ok=True)
+        (py_ws / "package.json").write_text(json.dumps({"dependencies": {}}))
+        assert not is_expo_workspace(py_ws)
+
+    def test_validate_routes_expo_to_tsc_lint(self, project: Path, monkeypatch):
+        ws = self._expo_ws(project)
+        calls = []
+        monkeypatch.setattr(
+            "bizniz.mobile_gates._run",
+            lambda cmd, **kw: calls.append(cmd) or 0,
+        )
+        assert cli.main(["validate", str(ws)]) == 0
+        assert calls[0][:2] == ["npx", "tsc"]
+        assert calls[1][:3] == ["npm", "run", "lint"]
+
+    def test_validate_expo_stops_on_tsc_failure(self, project: Path, monkeypatch):
+        ws = self._expo_ws(project)
+        calls = []
+        monkeypatch.setattr(
+            "bizniz.mobile_gates._run",
+            lambda cmd, **kw: calls.append(cmd) or 2,
+        )
+        assert cli.main(["validate", str(ws)]) == 2
+        assert len(calls) == 1  # lint never ran
+
+    def test_test_routes_expo_to_jest(self, project: Path, monkeypatch):
+        self._expo_ws(project)
+        calls = []
+        monkeypatch.setattr(
+            "bizniz.mobile_gates._run",
+            lambda cmd, **kw: calls.append(cmd) or 0,
+        )
+        assert cli.main(["test", "demo", "--service", "mobile"]) == 0
+        assert calls[0][:2] == ["npx", "jest"]
+
+    def test_test_nonmobile_still_uses_compose(self, project: Path, monkeypatch):
+        composed = []
+        monkeypatch.setattr(
+            "bizniz.cli._compose",
+            lambda proj, *a: composed.append(a) or 0,
+        )
+        assert cli.main(["test", "demo", "--service", "backend"]) == 0
+        assert composed and composed[0][0] == "exec"
+
+    def test_smoke_service_rejects_non_expo(self, project: Path):
+        with pytest.raises(SystemExit):
+            cli.main(["smoke", "demo", "--service", "backend"])
+
+    def test_smoke_service_routes_to_maestro_chain(self, project: Path, monkeypatch):
+        ws = self._expo_ws(project)
+        seen = {}
+        def fake_smoke(workspace, avd=None, skip_build=False, log=None):
+            seen.update(workspace=workspace, avd=avd, skip_build=skip_build)
+            return 0
+        monkeypatch.setattr("bizniz.mobile_gates.run_smoke", fake_smoke)
+        assert cli.main(["smoke", "demo", "--service", "mobile",
+                         "--avd", "bizniz", "--skip-build"]) == 0
+        assert seen["workspace"] == ws
+        assert seen["avd"] == "bizniz" and seen["skip_build"] is True

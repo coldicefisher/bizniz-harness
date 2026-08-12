@@ -164,6 +164,23 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     from bizniz.planner.types import Milestone
 
     project = resolve_project(args.project)
+    if getattr(args, "service", None):
+        # Per-service smoke: device-type services gate via Maestro on
+        # an emulator, not curl against compose.
+        from bizniz import mobile_gates
+
+        workspace = project / args.service
+        if mobile_gates.is_expo_workspace(workspace):
+            return mobile_gates.run_smoke(
+                workspace,
+                avd=getattr(args, "avd", None),
+                skip_build=getattr(args, "skip_build", False),
+                log=lambda m: print(m, file=sys.stderr),
+            )
+        raise SystemExit(
+            f"error: --service smoke only supports mobile workspaces; "
+            f"'{args.service}' is not an Expo workspace"
+        )
     architecture = load_architecture(project)
     auth_contract = None
     contract_path = project / "AUTH_CONTRACT.md"
@@ -193,17 +210,33 @@ def cmd_smoke(args: argparse.Namespace) -> int:
 
 
 def cmd_test(args: argparse.Namespace) -> int:
+    from bizniz import mobile_gates
+
     project = resolve_project(args.project)
+    workspace = project / args.service
+    if mobile_gates.is_expo_workspace(workspace):
+        # Mobile workspaces aren't containerized — jest runs host-side.
+        return mobile_gates.run_tests(
+            workspace, args.cmd or None,
+            log=lambda m: print(m, file=sys.stderr),
+        )
     test_cmd: List[str] = args.cmd or ["python", "-m", "pytest", "-q"]
     return _compose(project, "exec", "-T", args.service, *test_cmd)
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
+    from bizniz import mobile_gates
     from bizniz.coder.symbol_validator import validate_files
 
     root = Path(args.path).expanduser()
     if not root.is_dir():
         root = resolve_project(args.path)
+    if mobile_gates.is_expo_workspace(root):
+        # Expo workspaces validate via tsc + lint, not the Python AST
+        # walker.
+        return mobile_gates.run_validate(
+            root, log=lambda m: print(m, file=sys.stderr),
+        )
     # A project root isn't itself a Python workspace — default to backend/.
     if not any(root.glob("*.py")) and (root / "backend").is_dir():
         root = root / "backend"
@@ -268,6 +301,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("project")
     p.add_argument("--timeout", type=float, default=5.0,
                    help="per-probe timeout seconds (default 5)")
+    p.add_argument("--service", default=None,
+                   help="mobile workspace name: gate via release build "
+                        "+ adb install + maestro instead of stack curl")
+    p.add_argument("--avd", default=None,
+                   help="emulator AVD name (default $BIZNIZ_AVD or 'bizniz')")
+    p.add_argument("--skip-build", action="store_true",
+                   help="reuse the existing release APK")
     p.set_defaults(fn=cmd_smoke)
 
     p = sub.add_parser("test", help="run tests inside a running service container")
