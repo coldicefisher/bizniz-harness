@@ -66,6 +66,9 @@ def build_compose(
             services_block[service.name] = entry
             if "app-network" not in networks:
                 networks.append("app-network")
+            for v in service.shared_volumes:
+                if v not in volumes:
+                    volumes.append(v)
 
     # Top-level structure. ``name`` pins the compose project name to the
     # slug. Without this, compose derives the project name from the parent
@@ -125,6 +128,11 @@ def _build_app_service_entry(
     # filesystem read from the frontend. Read-only because docs are
     # content, not application state.
     volumes.append("../../docs:/app/docs:ro")
+    # Shared named volumes (cross-service file exchange, e.g. an
+    # upload-accepting backend + a worker reading the same files).
+    # Mount path convention: /data/<volume-name>.
+    for shared in service.shared_volumes:
+        volumes.append(f"{shared}:/data/{shared}")
 
     entry: dict = {
         "image": f"{project_slug}-{service.name}:dev",

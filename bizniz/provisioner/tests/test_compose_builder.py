@@ -245,3 +245,52 @@ def test_angular_uses_4200_container_port():
     yml = build_compose(arch, template_outputs={}, project_slug="x")
     parsed = yaml.safe_load(yml)
     assert "4201:4200" in parsed["services"]["dashboard"]["ports"]
+
+
+def test_mobile_service_gets_no_compose_entry():
+    """Device-type services run on devices, not in the stack."""
+    from bizniz.architect.types import ServiceDefinition, SystemArchitecture
+    from bizniz.provisioner.compose_builder import build_compose
+
+    arch = SystemArchitecture(
+        project_name="T", project_slug="t", description="d",
+        services=[
+            ServiceDefinition(
+                name="backend", service_type="backend", framework="fastapi",
+                language="python", description="api", workspace_name="backend",
+                port=8000,
+            ),
+            ServiceDefinition(
+                name="mobile", service_type="mobile", framework="expo",
+                language="typescript", description="app", workspace_name="mobile",
+            ),
+        ],
+    )
+    yaml_text = build_compose(arch, {}, "t")
+    assert "backend:" in yaml_text
+    assert "mobile" not in yaml_text
+
+
+def test_shared_volumes_mounted_and_registered():
+    """shared_volumes mount at /data/<name> and register top-level."""
+    from bizniz.architect.types import ServiceDefinition, SystemArchitecture
+    from bizniz.provisioner.compose_builder import build_compose
+
+    arch = SystemArchitecture(
+        project_name="T", project_slug="t", description="d",
+        services=[
+            ServiceDefinition(
+                name="backend", service_type="backend", framework="fastapi",
+                language="python", description="api", workspace_name="backend",
+                port=8000, shared_volumes=["documents"],
+            ),
+            ServiceDefinition(
+                name="worker", service_type="worker", framework="redis-streams",
+                language="python", description="w", workspace_name="worker",
+                shared_volumes=["documents"],
+            ),
+        ],
+    )
+    yaml_text = build_compose(arch, {}, "t")
+    assert yaml_text.count("documents:/data/documents") == 2
+    assert "volumes:\n  documents:" in yaml_text or "documents: null" in yaml_text

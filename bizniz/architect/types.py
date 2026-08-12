@@ -36,6 +36,12 @@ class ServiceDefinition(BaseModel):
     host_port: Optional[int] = None
     depends_on: List[str] = []
     requirements: List[str] = []  # pip/npm packages
+    # Named Docker volumes this service shares with sibling services.
+    # Each name is mounted at ``/data/<name>`` in every service that
+    # declares it, and registered as a top-level compose volume. This
+    # is how e.g. an upload-accepting backend and an extraction worker
+    # see the same files (flirpie: ``documents`` → /data/documents).
+    shared_volumes: List[str] = []
     skeleton: Optional[str] = None  # fastapi | react | angular | teams-backend | teams-consumer | teams-frontend | none
     image_name: Optional[str] = None  # Docker image tag, set after build
     # Evolve-mode tag set by Architect.evolve():

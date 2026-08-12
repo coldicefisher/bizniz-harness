@@ -54,7 +54,12 @@ from bizniz.provisioner.types import (
 
 
 _INFRASTRUCTURE_TYPES = {"database", "cache", "proxy", "auth"}
-_APP_TYPES = {"backend", "frontend", "worker"}
+# Device types get a skeleton-seeded workspace like app types, but run
+# on devices/emulators outside the compose stack: no compose service,
+# no Dockerfile, no image build. Their smoke gate is Maestro on an
+# emulator, not curl (see bizniz-skeleton-expo).
+_DEVICE_TYPES = {"mobile"}
+_APP_TYPES = {"backend", "frontend", "worker"} | _DEVICE_TYPES
 
 
 class Provisioner:
@@ -767,8 +772,13 @@ class Provisioner:
         action_by_name: Dict[str, ReconcileAction],
     ) -> None:
         log = self._log
+        svc_type_by_name = {s.name: s.service_type for s in architecture.services}
         for ps in provisioned_services:
             if ps.is_infrastructure or ps.workspace_path is None:
+                continue
+            if svc_type_by_name.get(ps.name) in _DEVICE_TYPES:
+                # Device workspaces (mobile) have no Dockerfile — they
+                # build via their own native toolchain (gradle/EAS).
                 continue
             image_tag = f"{architecture.project_slug}-{ps.name}:dev"
             docker_dir = project.get_docker_service_dir(ps.workspace_name)

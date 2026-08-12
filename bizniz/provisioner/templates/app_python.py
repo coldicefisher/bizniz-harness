@@ -1,6 +1,8 @@
 """Generated boilerplate for a Python app service when no skeleton applies."""
 from __future__ import annotations
 
+from typing import Optional
+
 from bizniz.provisioner.templates.base import (
     InfraTemplate,
     TemplateContext,
@@ -15,7 +17,20 @@ _FRAMEWORK_DEFAULTS = {
 }
 
 
-def _generate_dockerfile(port: int, service_type: str = "backend") -> str:
+# requirements whose import needs a system package the slim image
+# lacks. Checked against the service's declared requirements so only
+# services that need a tool pay for it (flirpie lesson: pytesseract
+# without the tesseract binary is dead on arrival).
+_SYSTEM_DEPS_BY_REQUIREMENT = {
+    "pytesseract": ["tesseract-ocr", "tesseract-ocr-eng"],
+}
+
+
+def _generate_dockerfile(
+    port: int,
+    service_type: str = "backend",
+    requirements: Optional[list] = None,
+) -> str:
     """Render the Dockerfile.
 
     Web/API services get ``uvicorn main:app`` so the entry contract
@@ -26,9 +41,21 @@ def _generate_dockerfile(port: int, service_type: str = "backend") -> str:
     Without this fork, every worker boilerplate fails compose-up
     immediately because uvicorn is not in the worker's requirements.
     """
+    apt_packages: list = []
+    for req in requirements or []:
+        req_name = req.split("[")[0].split("=")[0].split(">")[0].split("<")[0].strip().lower()
+        apt_packages.extend(_SYSTEM_DEPS_BY_REQUIREMENT.get(req_name, []))
+    apt_line = ""
+    if apt_packages:
+        pkgs = " ".join(dict.fromkeys(apt_packages))  # dedupe, keep order
+        apt_line = (
+            "RUN apt-get update && apt-get install -y --no-install-recommends "
+            f"{pkgs} && rm -rf /var/lib/apt/lists/*\n"
+        )
     base = (
         "FROM python:3.12-slim\n"
-        "WORKDIR /app\n"
+        + apt_line
+        + "WORKDIR /app\n"
         "COPY requirements.txt .\n"
         "RUN pip install --no-cache-dir -r requirements.txt\n"
         "COPY . .\n"
@@ -130,7 +157,9 @@ class PythonAppTemplate(InfraTemplate):
 
     def render(self, ctx: TemplateContext) -> TemplateOutput:
         port = ctx.service.port or 8000
-        dockerfile = _generate_dockerfile(port, ctx.service.service_type)
+        dockerfile = _generate_dockerfile(
+            port, ctx.service.service_type, ctx.service.requirements,
+        )
         requirements = _generate_requirements(ctx.service.framework, ctx.service.requirements)
         skeleton_md = _generate_skeleton_md(ctx.service.framework, port)
 

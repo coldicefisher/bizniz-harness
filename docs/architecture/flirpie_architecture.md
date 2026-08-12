@@ -58,17 +58,34 @@ Ollama is an EXTERNAL endpoint (`OLLAMA_BASE_URL`, default
   (Trip entity + assignment), search/filter, per-state per-quarter
   fuel totals.
 
-## Open product decisions (Jamey)
+## Product decisions (Jamey, 2026-08-10 — DECIDED)
 
-1. **"Trip" definition**: user-created entity with date-range
-   auto-assign (assumed) vs inferred from odometer/date clustering
-   (materially different feature).
-2. **Tier 3**: heavier local model (assumed) vs human-in-the-loop
-   review queue (adds a mobile surface).
-3. **"opentrain"** reading: open/locally-trainable models via
-   Ollama/HF fine-tuned on the auto_receipt corpus (assumed) vs a
-   specific external product.
-4. IFTA scope in v1 = views + totals only (no form generation/export).
+1. **Trip = a load.** Origin (first pickup) → destination (last
+   drop-off). Trip entity models a specific load, not a date range:
+   load number/name, origin, destination, pickups/drops, dates.
+   Documents attach to trips; BOL extraction should eventually
+   auto-suggest trip assignment (the BOL literally describes the
+   load). Date-range assign stays as a convenience helper only.
+2. **Accuracy via convergence, not single-model confidence.** AI does
+   the lifting; a field is CONFIRMED only when two independent
+   extractions agree (two different models, or independent
+   threads/passes of the same pipeline, conferring the same values).
+   Disagreement → escalate (third engine or flag for manual
+   correction on mobile). This replaces the "tier 3 heavier model"
+   assumption — the third tier is a tiebreaker within the
+   convergence gate. Same adversarial-verify pattern the harness
+   uses for code findings.
+3. **"opentrain" was a misreading — it's OpenRouter.** Jamey has
+   OpenRouter credits. Engine chain gains an `openrouter:<model>`
+   spec alongside `tesseract` / `ollama:<tag>` / `hf:<repo>`. Cheap
+   OpenRouter VLMs are in scope for v1 (cost-per-image stays low by
+   model choice), and OpenRouter makes model-diverse convergence
+   trivial (two different cheap models per document). The earlier
+   "no cloud vision APIs in v1" note is superseded. Follow-up: add
+   the `openrouter:` engine to the auto_receipt bench so model picks
+   are corpus-measured, not vibes.
+4. **IFTA v1 = organization only** (views + per-state/quarter
+   totals). Form generation/export deferred — confirmed.
 
 ## Assumed out of v1
 

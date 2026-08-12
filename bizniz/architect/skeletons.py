@@ -79,6 +79,22 @@ _SKELETONS: Dict[str, SkeletonInfo] = {
             "data-dense UIs."
         ),
     ),
+    "expo": SkeletonInfo(
+        name="expo",
+        relative_path="bizniz-skeleton-expo",
+        service_type="mobile",
+        framework="expo",
+        language="typescript",
+        container_port=None,
+        description=(
+            "Expo (React Native + TypeScript) mobile app: expo-router "
+            "file-based screens, typed API client, secure-store auth "
+            "session, jest-expo tests, Maestro smoke flow. Runs on "
+            "devices/emulators, NOT in the compose stack — no container, "
+            "no Dockerfile. Gates: tsc, jest, expo lint, gradle release "
+            "build + maestro on the Android emulator."
+        ),
+    ),
     "teams-backend": SkeletonInfo(
         name="teams-backend",
         relative_path="bizniz-skeleton-teams/backend",
