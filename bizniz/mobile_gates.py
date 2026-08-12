@@ -184,8 +184,10 @@ def run_smoke(workspace: Path, avd: Optional[str] = None,
                        "--no-install"], cwd=workspace, log=log, env={"CI": "1"})
             if rc != 0:
                 return rc
-        rc = _run(["./gradlew", "assembleRelease"], cwd=workspace / "android",
-                  log=log)
+        # Via bash: expo prebuild does not reliably set gradlew's exec
+        # bit, and the gate must not depend on file modes.
+        rc = _run(["bash", "gradlew", "assembleRelease"],
+                  cwd=workspace / "android", log=log)
         if rc != 0:
             return rc
     if not apk.exists():

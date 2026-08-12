@@ -72,9 +72,50 @@ _SUBSTITUTIONS: dict = {
             ),
         ),
     ],
+    # The expo skeleton ships with its OWN app identity; without these
+    # rewrites every generated mobile app shares one Android package id
+    # and installs REPLACE each other on a device (flirpie lesson —
+    # it overwrote the skeleton toy app on the emulator).
+    "expo": [
+        _Substitution(
+            file="app.json",
+            find='"name": "bizniz-skeleton-expo"',
+            compute=lambda arch, svc: f'"name": "{arch.project_name}"',
+        ),
+        _Substitution(
+            file="app.json",
+            find='"slug": "bizniz-skeleton-expo"',
+            compute=lambda arch, svc: f'"slug": "{arch.project_slug}"',
+        ),
+        _Substitution(
+            file="app.json",
+            find='"package": "com.coldicefisher.biznizskeletonexpo"',
+            compute=lambda arch, svc: (
+                f'"package": "com.coldicefisher.{_android_pkg_segment(arch)}"'
+            ),
+        ),
+        _Substitution(
+            file=".maestro/smoke.yaml",
+            find="appId: com.coldicefisher.biznizskeletonexpo",
+            compute=lambda arch, svc: (
+                f"appId: com.coldicefisher.{_android_pkg_segment(arch)}"
+            ),
+        ),
+    ],
     # angular / teams-frontend / others can register here when they
     # ship similar hardcoded refs. Empty list = no substitutions.
 }
+
+
+def _android_pkg_segment(arch: SystemArchitecture) -> str:
+    """Project slug as a valid Java package segment: lowercase
+    alphanumerics + underscores, must not start with a digit."""
+    seg = "".join(
+        c if c.isalnum() else "_" for c in arch.project_slug.lower()
+    ).strip("_") or "app"
+    if seg[0].isdigit():
+        seg = f"app{seg}"
+    return seg
 
 
 def apply_substitutions(

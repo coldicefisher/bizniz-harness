@@ -123,3 +123,57 @@ class TestReactViteProxySubstitution:
         )
         assert any("applied skeleton substitution" in m for m in msgs)
         assert any("vite.config.ts" in m for m in msgs)
+
+
+def _mobile(name: str = "mobile") -> ServiceDefinition:
+    return ServiceDefinition(
+        name=name, service_type="mobile", framework="expo",
+        language="typescript", description="", workspace_name=name,
+    )
+
+
+class TestExpoIdentitySubstitutions:
+    """Generated mobile apps must NOT share the skeleton's app identity
+    (same Android package id ⇒ installs replace each other)."""
+
+    def _seed(self, tmp_path: Path) -> Path:
+        ws = tmp_path / "mobile"
+        (ws / ".maestro").mkdir(parents=True)
+        (ws / "app.json").write_text(
+            '{\n  "expo": {\n'
+            '    "name": "bizniz-skeleton-expo",\n'
+            '    "slug": "bizniz-skeleton-expo",\n'
+            '    "android": {\n'
+            '      "package": "com.coldicefisher.biznizskeletonexpo"\n'
+            '    }\n  }\n}\n'
+        )
+        (ws / ".maestro" / "smoke.yaml").write_text(
+            "appId: com.coldicefisher.biznizskeletonexpo\n---\n- launchApp\n"
+        )
+        return ws
+
+    def test_identity_rewritten_per_project(self, tmp_path):
+        ws = self._seed(tmp_path)
+        arch = SystemArchitecture(
+            project_name="Flirpie", project_slug="flirpie",
+            services=[_backend(), _mobile()], description="",
+        )
+        applied = apply_substitutions("expo", ws, arch, _mobile())
+        app_json = (ws / "app.json").read_text()
+        assert '"name": "Flirpie"' in app_json
+        assert '"slug": "flirpie"' in app_json
+        assert '"package": "com.coldicefisher.flirpie"' in app_json
+        assert "biznizskeletonexpo" not in app_json
+        smoke = (ws / ".maestro" / "smoke.yaml").read_text()
+        assert "appId: com.coldicefisher.flirpie" in smoke
+        assert len(applied) == 4
+
+    def test_package_segment_sanitized(self, tmp_path):
+        ws = self._seed(tmp_path)
+        arch = SystemArchitecture(
+            project_name="2Fast 4U", project_slug="2fast-4u",
+            services=[_mobile()], description="",
+        )
+        apply_substitutions("expo", ws, arch, _mobile())
+        app_json = (ws / "app.json").read_text()
+        assert '"package": "com.coldicefisher.app2fast_4u"' in app_json
