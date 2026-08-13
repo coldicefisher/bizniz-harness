@@ -108,7 +108,7 @@ models agreeing per field). OpenRouter credits available for the
 cloud leg (`OPENROUTER_API_KEY` — not yet in .env).
 
 **Shipped M1-M3 + M4 in flight** (repo `coldicefisher/muvnit`,
-project `~/bizniz_projects/muvnit`, stack ports: backend 8005, FA
+project `~/muvnit` (symlinked from ~/bizniz_projects/muvnit for CLI slug resolution), stack ports: backend 8005, FA
 9013, pg 5435):
 - M1 capture/keep (auth, camera upload, per-user isolation), M2
   tier-1 extraction (tesseract+heuristics from the auto_receipt
