@@ -7,14 +7,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This file orients a Claude session in the bizniz repo. Read this
 first; it tells you what to load next.
 
-## Current roadmap (2026-05-16)
+## Current roadmap (2026-05-16) — SUPERSEDED by the 2026-08 pivot
+
+> **PIVOT NOTE (2026-08-12):** the mission is now product-first —
+> ship Muvnit (and successors) via Claude-native harness mode,
+> refining the harness as we go. The locked list below is the
+> pre-pivot pipeline roadmap: items 1-5 shipped; 6-12 are NOT
+> abandoned but only get pulled in when product work demands them
+> (e.g. item 8's docs system, item 12's A/B brain). Don't resume
+> this list without an explicit decision.
 
 Locked-in order — work items 1 → 12 in sequence. Full text at
-`docs/roadmap.md`. Honor this when prioritizing new work. Item 5
-inserted 2026-05-16 after CRM v1 M5 crashed twice on defensive-
-handling gaps; items 6-11 renumbered. Items 12-13 appended same
-day (immune system + brain). Gemini baseline (was item 11)
-deferred 2026-05-16; remaining items renumbered to 11+12.
+`docs/roadmap.md`. Item 5 inserted 2026-05-16 after CRM v1 M5
+crashed twice on defensive-handling gaps; items 6-11 renumbered.
+Items 12-13 appended same day (immune system + brain). Gemini
+baseline deferred 2026-05-16.
 
 1. ✅ **Confidence signals load-bearing** — SHIPPED 2026-05-15
    (commit `5de1059`). `QualityEngineer.enrich.confidence` now drives
@@ -135,17 +142,23 @@ repos pending archive/delete.
 
 ## What bizniz is (one paragraph)
 
-Bizniz is a multi-agent AI pipeline that takes a natural-language
-problem statement and produces a working, Dockerized, multi-service
-app. The pipeline: **Architect** decomposes → **Provisioner**
-materializes (clones skeletons + emits compose) → **Engineer** per
-service generates code via three-phase strategy → **Coder /
-Tester / QuickDebugger** loop on each issue → **HTTPApiTester**
-writes pytest+httpx integration tests → **WebUITester** writes
-Playwright tests → both run against the live stack →
-**AgenticDebugger** auto-repairs integration failures. End artifact:
-a `~/bizniz_projects/<slug>/` directory with running code, tests,
-SKELETON.md contracts, captured OpenAPI, and a per-run report.
+Bizniz turns problem statements into working, tested apps (web +
+native mobile) in two modes. **Claude-native harness mode (primary
+since 2026-08):** Claude Code drives the loop using bizniz as
+deterministic tooling — the `bizniz` CLI gates (smoke/test/validate,
+web AND Expo-mobile variants), `.claude/agents/` role subagents,
+`/bizniz-fix` + `/bizniz-review` skills, and the session-wide MCP
+server. Method: pinned-contract parallel dispatch → diff-audit →
+independent gate verification → agent continuations → root-cause
+fixes land in the harness/skeletons. **Autonomous pipeline mode
+(legacy/batch):** `examples/v2_build.py` runs Planner → Architect →
+Provisioner → Engineer → Coder/Tester/Debugger → QE+CR repair →
+integration tests unattended; still used for batch builds, single
+top phases (`--phase provision|auth` over seeded run state), and A/B
+baselines. End artifact either way: `~/bizniz_projects/<slug>/` with
+running code, tests, SKELETON.md contracts, and run state under
+`.bizniz/`. First shipped product: **Muvnit** (trucking paperwork,
+Expo mobile) — see Session state above.
 
 ## What's in flight (as of 2026-05-13)
 
@@ -413,11 +426,16 @@ by default via `pyproject.toml` `addopts = "-m 'not functional'"`.
 
 ## Read these next, in order
 
-1. `docs/sessions/2026-05-02_integration_debugger_tuning.md` (latest session — debugger fixes)
-2. `docs/sessions/2026-05-01_pipeline_completion.md` (prior session — full pipeline buildout)
-3. `docs/changes/2026-05-01_build_vs_evolve_strategy.md` (build-mode now, evolve-mode later)
-4. `docs/changes/2026-05-01_pet_groomer_buildout_plan.md` (pet-groomer is the first real customer)
-5. `docs/memory/MEMORY.md` — index into the portable memory; each entry points at a specific concern
+1. `docs/changes/2026-08-12_mobile_pivot_muvnit_v1.md` (the current
+   arc — mobile pivot, Muvnit v1, harness lessons)
+2. `docs/architecture/muvnit_architecture.md` (the shipped product's
+   design + decided product questions)
+3. `docs/changes/2026-08-04_claude_harness_fix_loop_v16.md` (the
+   fix-loop pattern's first validation — why harness mode won)
+4. `bizniz-skeleton-expo/SKELETON.md` (in its repo — the mobile
+   contract incl. Hermes + typing lessons)
+5. `docs/memory/MEMORY.md` — portable memory index (auto-memory on
+   this machine is richer; see below)
 
 ## Commands you'll need
 
