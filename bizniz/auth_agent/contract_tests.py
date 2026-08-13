@@ -48,7 +48,18 @@ import httpx
 import pytest
 
 
-_FA_URL = os.environ.get("FUSIONAUTH_HOST_URL") or "http://auth:9011"
+# FUSIONAUTH_URL is the in-network URL every container carries (points
+# at the architecture's actual FA service name). FUSIONAUTH_HOST_URL is
+# host-perspective and lives in .env.host — absent inside containers
+# since the 2026-08-04 env split; kept for host-side runs. The
+# hardcoded fallback assumes a service named "auth", which is only a
+# guess (muvnit named it "fusionauth" — the v16-era fallback broke
+# there).
+_FA_URL = (
+    os.environ.get("FUSIONAUTH_URL")
+    or os.environ.get("FUSIONAUTH_HOST_URL")
+    or "http://auth:9011"
+)
 _APP_ID = "__APP_ID_PLACEHOLDER__"
 _ISSUER = "__ISSUER_PLACEHOLDER__"
 

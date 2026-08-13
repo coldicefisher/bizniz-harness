@@ -363,3 +363,19 @@ class TestRunAuditBattery:
         assert not parseable.passed
         assert not any("token_validation" in n for n in names)
         assert "test_users_in_fa" not in names
+
+
+def test_contract_test_prefers_container_fa_url():
+    """Emitted contract tests must resolve FA via FUSIONAUTH_URL first:
+    containers stopped receiving FUSIONAUTH_HOST_URL at the 2026-08-04
+    env split, and the hardcoded fallback guesses a service name
+    ("auth") the architect may not use (muvnit named it "fusionauth")."""
+    import inspect
+    from bizniz.auth_agent import contract_tests
+
+    src = inspect.getsource(contract_tests)
+    url_pos = src.find('os.environ.get("FUSIONAUTH_URL")')
+    host_pos = src.find('os.environ.get("FUSIONAUTH_HOST_URL")')
+    assert url_pos != -1, "FUSIONAUTH_URL must be consulted"
+    assert host_pos != -1, "FUSIONAUTH_HOST_URL stays as host-side fallback"
+    assert url_pos < host_pos, "container-correct FUSIONAUTH_URL must win"
