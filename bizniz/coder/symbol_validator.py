@@ -236,6 +236,10 @@ def _resolve(
         "PIL": "pillow",
         "cv2": "opencv_python",
         "sklearn": "scikit_learn",
+        "dateutil": "python_dateutil",   # flirpie M2 false positive
+        "bs4": "beautifulsoup4",
+        "multipart": "python_multipart",
+        "psycopg2": "psycopg2_binary",
     }
     aliased = aliases.get(head, "")
     if aliased and aliased in third_party:

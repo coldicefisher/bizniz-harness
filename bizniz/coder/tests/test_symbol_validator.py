@@ -513,3 +513,21 @@ class TestFrameworkAttributeFalsePositives:
         report = validate_files([f], ws)
         assert not report.passed
         assert any(a.attribute == "emial" for a in report.unresolved_attributes)
+
+
+def test_dist_name_aliases_resolve(tmp_path):
+    """python-dateutil ships `dateutil` etc. — distribution name ≠
+    import name (flirpie M2 worker false positive)."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "requirements.txt").write_text(
+        "python-dateutil\nbeautifulsoup4\npython-multipart\n"
+    )
+    f = ws / "m.py"
+    f.write_text(
+        "from dateutil import parser\n"
+        "import bs4\n"
+        "import multipart\n"
+    )
+    report = validate_files([f], ws)
+    assert report.passed, report.render()
