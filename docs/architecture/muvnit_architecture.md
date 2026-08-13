@@ -1,4 +1,8 @@
-# Flirpie — architecture (bizniz-architect output, 2026-08-10)
+# Muvnit (né flirpie) — architecture (bizniz-architect output, 2026-08-10)
+
+> RENAMED 2026-08-12: the product ships as **Muvnit** (muvnit.com);
+> flirpie.com reserved for a future game. Slugs below read "flirpie"
+> historically; the live project is ~/bizniz_projects/muvnit.
 
 First app cut through the Claude-native harness. Produced by the
 `bizniz-architect` subagent from the problem statement; recorded here
