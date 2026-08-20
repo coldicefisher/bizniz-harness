@@ -19,6 +19,7 @@ Everything else in this repo exists to feed those gates or react to them.
 ## Contents
 
 - [Install](#install)
+- [Getting started on a new machine](BOOTSTRAP.md) — paste-and-go prompt
 - [Quickstart](#quickstart)
 - [The `bizniz` CLI](#the-bizniz-cli) — the gate surface
 - [The Claude-native layer](#the-claude-native-layer) — agents, skills, MCP
@@ -31,6 +32,11 @@ Everything else in this repo exists to feed those gates or react to them.
 ---
 
 ## Install
+
+**Fastest path: paste the prompt in [BOOTSTRAP.md](BOOTSTRAP.md) into a
+fresh Claude Code session.** It clones the repo and the six skeletons,
+installs, and verifies the result. Everything below is what it does by
+hand.
 
 Requires Python 3.10+, Docker with the compose plugin, and `git`.
 
@@ -56,9 +62,26 @@ needs them; the web path is unaffected if they are absent.
 ### Verifying the install
 
 ```bash
+./scripts/bootstrap.sh   # prerequisites, skeletons, install, full verify
+```
+
+Idempotent, and it exits non-zero listing every problem rather than
+stopping at the first. Or check by hand:
+
+```bash
 bizniz --help          # nine subcommands
 bizniz projects        # lists generated projects, or nothing on a fresh machine
 ```
+
+### Skeleton access is not optional
+
+The skeleton repos are private and are cloned **over SSH, on demand**.
+Confirm `ssh -T git@github.com` greets you by name before your first
+build, because a failed skeleton clone does not stop a build: the
+Provisioner catches it and generates the service from scratch instead, so
+you get a stack that comes up cleanly with none of the skeleton's auth
+wiring, Docker setup, or routing conventions. `scripts/bootstrap.sh`
+checks this up front for exactly that reason.
 
 ---
 
