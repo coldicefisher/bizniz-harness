@@ -140,12 +140,16 @@ noise; store submission blockers: Apple dev account + EAS setup +
 Moovit trademark check.
 
 **Canonical remote (2026-08-20):** this repo lives at
-`coldicefisher/bizniz-harness`. `bizniz-2` and `bizniz-3` are fully
-contained in it (verified by SHA) and are safe to delete. The original
-`coldicefisher/bizniz` is the pre-rewrite lineage: same work under
-different hashes, and its final tree differs from HEAD only by files
-added later here, so archive it rather than delete. `flirpie` still
-pending archive/delete.
+`coldicefisher/bizniz-harness`, and it is now the ONLY bizniz repo.
+`bizniz`, `bizniz-2` and `bizniz-3` were deleted 2026-08-20; their
+content is fully contained here (verified by SHA for -2 and -3; the
+original was the pre-rewrite lineage, same work under different hashes,
+whose final tree differed from HEAD only by files added later here).
+Nothing references them locally. `flirpie` still pending archive/delete.
+
+The `bizniz-skeleton-*` repos are NOT archive candidates -- the
+provisioner clones them by name at `$BIZNIZ_SKELETONS_DIR` on every
+greenfield provision.
 
 ## What bizniz is (one paragraph)
 
