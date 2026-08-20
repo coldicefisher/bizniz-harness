@@ -137,8 +137,15 @@ OLLAMA_HOST=0.0.0.0 systemd one-liner); regenerate muvnit's 2
 auth-contract test copies (template fixed in bizniz 2026-08-12);
 issuer-reconcile skipped on single-phase auth; worker redis log
 noise; store submission blockers: Apple dev account + EAS setup +
-Moovit trademark check; bizniz-2 (public) + flirpie + bizniz-harness
-repos pending archive/delete.
+Moovit trademark check.
+
+**Canonical remote (2026-08-20):** this repo lives at
+`coldicefisher/bizniz-harness`. `bizniz-2` and `bizniz-3` are fully
+contained in it (verified by SHA) and are safe to delete. The original
+`coldicefisher/bizniz` is the pre-rewrite lineage: same work under
+different hashes, and its final tree differs from HEAD only by files
+added later here, so archive it rather than delete. `flirpie` still
+pending archive/delete.
 
 ## What bizniz is (one paragraph)
 
