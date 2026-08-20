@@ -527,3 +527,50 @@ def test_generated_password_is_safe_in_a_compose_env_file(tmp_path):
         assert len(pw) >= 16
         assert any(c.isupper() for c in pw) and any(c.islower() for c in pw)
         assert any(c.isdigit() for c in pw)
+
+
+# ── `status` must not describe a provisioned project as unprovisioned ───
+
+def _seed_project_db(tmp_path, services=("postgres", "api")):
+    """A project DB carrying an architecture snapshot and no driver run."""
+    from bizniz.project.project import Project
+    arch = _arch([
+        svc(name=n, workspace_name=("" if n == "postgres" else n),
+            service_type=("database" if n == "postgres" else "backend"),
+            framework=("postgres" if n == "postgres" else "fastapi"),
+            language=("sql" if n == "postgres" else "python"))
+        for n in services
+    ])
+    project = Project(tmp_path, tmp_path.name)
+    project.create_structure()
+    project.db.save_architecture_snapshot(arch.model_dump_json())
+    return arch
+
+
+def test_status_reports_a_project_provisioned_outside_the_driver(tmp_path, capsys):
+    """`.bizniz/runs/` is the DRIVER's bookkeeping. A project built through
+    the Provisioner API, or adopted into an existing workspace, has a real
+    stack and no run directory. Reporting 'no runs recorded' and exiting
+    non-zero for one of those is how a working stack gets diagnosed as a
+    failed build."""
+    import argparse
+    from bizniz.cli import cmd_status
+
+    proj = tmp_path / "adopted"
+    proj.mkdir()
+    _seed_project_db(proj)
+    rc = cmd_status(argparse.Namespace(project=str(proj)))
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "postgres" in out and "api" in out
+
+
+def test_status_still_fails_on_a_project_that_is_not_provisioned(tmp_path, capsys):
+    """The fallback must not turn every empty directory into a success."""
+    import argparse
+    from bizniz.cli import cmd_status
+
+    proj = tmp_path / "empty"
+    proj.mkdir()
+    assert cmd_status(argparse.Namespace(project=str(proj))) == 1
+    assert "not provisioned" in capsys.readouterr().out

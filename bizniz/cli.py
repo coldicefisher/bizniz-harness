@@ -237,8 +237,27 @@ def cmd_status(args: argparse.Namespace) -> int:
     project = resolve_project(args.project)
     run_dir = latest_run_dir(project)
     if run_dir is None:
-        print(f"{project.name}: no runs recorded")
-        return 1
+        # No driver run directory does NOT mean unprovisioned. A project
+        # built through the Provisioner API directly, or adopted into an
+        # existing workspace, has an architecture snapshot in its project
+        # DB and a stack on disk without ever having had a driver run.
+        # Reporting "no runs recorded" and exiting non-zero for one of
+        # those describes the pipeline's bookkeeping as if it were the
+        # project's state, which is how a working stack gets diagnosed as
+        # a failed build.
+        arch = _architecture_from_project_db(project)
+        if arch is None:
+            print(f"{project.name}: no runs recorded and no architecture "
+                  f"snapshot — not provisioned")
+            return 1
+        print(f"project:  {project}")
+        print(f"run:      (none — provisioned outside the driver)")
+        print(f"services: {', '.join(s.name for s in arch.services) or '(none)'}")
+        try:
+            print(f"compose:  {compose_path(project)}")
+        except SystemExit:
+            print(f"compose:  (none under {project / 'infra'})")
+        return 0
     print(f"project:  {project}")
     print(f"run:      {run_dir.name}")
     status_path = run_dir / "run_status.json"
