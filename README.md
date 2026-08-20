@@ -3,14 +3,56 @@
 A build harness. It turns a problem statement into a running, tested
 application, and it gates every claim against a live stack.
 
-The premise is narrow: agent-written code does not fail loudly, it
-*reports success*. A model will tell you the tests pass, the route is
-wired and the feature is done, and be wrong about all three in a way that
-reads exactly like being right. So every claim here has to survive a
-deterministic check that no model runs — plain Python and shell that curl
-a live stack, walk an AST, and run tests inside the container that will
-actually serve traffic. They exit non-zero. Nothing talks its way past
-them.
+## Start here
+
+Paste this into a fresh Claude Code session. Any directory — you do not
+need the repo yet.
+
+```
+Set up the bizniz build harness on this machine.
+
+1. Clone git@github.com:coldicefisher/bizniz-harness.git into ~/bizniz.
+   If ~/bizniz already exists, use it and pull instead of re-cloning.
+2. Run ~/bizniz/scripts/bootstrap.sh and show me its full output.
+3. If it reports failures, diagnose them and fix what you reasonably can,
+   then re-run it. Report anything you cannot fix.
+4. Once it prints READY, read ~/bizniz/README.md and give me a short
+   summary of the gate commands, then tell me to restart you from inside
+   the repo.
+
+Two things not to do:
+
+- Do not work around a skeleton clone or GitHub SSH failure by carrying on
+  without them. The Provisioner catches a missing skeleton and generates
+  the service from scratch instead, so the build then SUCCEEDS while
+  producing services with none of the skeleton's auth, Docker or routing
+  conventions. A red bootstrap is much cheaper than that.
+- Do not edit the test suite or the bootstrap checks to make them pass.
+  If the suite is red on a clean clone, that is the finding, and I want to
+  hear it.
+```
+
+It clones the repo and the six skeleton repos, installs, and verifies the
+result end to end. When it finishes, restart Claude Code from inside the
+repo — `cd ~/bizniz && claude` — so the subagents, skills and MCP server
+load. See [BOOTSTRAP.md](BOOTSTRAP.md) for what each step checks and how
+to do it by hand.
+
+**You need read access to all six `bizniz-skeleton-*` repositories, over
+SSH.** `gh auth login` is not sufficient: it authenticates `gh`, not `git`
+over SSH. Check with `ssh -T git@github.com` before you start.
+
+---
+
+## Why it works this way
+
+Agent-written code does not fail loudly, it *reports success*. A model
+will tell you the tests pass, the route is wired and the feature is done,
+and be wrong about all three in a way that reads exactly like being right.
+So every claim here has to survive a deterministic check that no model
+runs — plain Python and shell that curl a live stack, walk an AST, and run
+tests inside the container that will actually serve traffic. They exit
+non-zero. Nothing talks its way past them.
 
 Everything else in this repo exists to feed those gates or react to them.
 
@@ -18,8 +60,7 @@ Everything else in this repo exists to feed those gates or react to them.
 
 ## Contents
 
-- [Install](#install)
-- [Getting started on a new machine](BOOTSTRAP.md) — paste-and-go prompt
+- [Install by hand](#install-by-hand)
 - [Quickstart](#quickstart)
 - [The `bizniz` CLI](#the-bizniz-cli) — the gate surface
 - [The Claude-native layer](#the-claude-native-layer) — agents, skills, MCP
@@ -31,12 +72,9 @@ Everything else in this repo exists to feed those gates or react to them.
 
 ---
 
-## Install
+## Install by hand
 
-**Fastest path: paste the prompt in [BOOTSTRAP.md](BOOTSTRAP.md) into a
-fresh Claude Code session.** It clones the repo and the six skeletons,
-installs, and verifies the result. Everything below is what it does by
-hand.
+What the bootstrap above does, if you would rather do it yourself.
 
 Requires Python 3.10+, Docker with the compose plugin, and `git`.
 

@@ -1,31 +1,14 @@
 # Getting started on a new machine
 
-Paste the block below into a fresh Claude Code session. It works from any
-directory — the session does not need to be in this repo yet.
+**The prompt to paste lives at the top of [README.md](README.md).** Paste
+it into a fresh Claude Code session from any directory and it will clone
+the repo, run `scripts/bootstrap.sh`, and report.
 
-```
-Set up the bizniz build harness on this machine.
+This file is the detail behind it: what each step checks, why the GitHub
+SSH check is separate, and how to do the whole thing by hand.
 
-1. Clone git@github.com:coldicefisher/bizniz-harness.git into ~/bizniz.
-   If ~/bizniz already exists, use it and pull instead of re-cloning.
-2. Run ~/bizniz/scripts/bootstrap.sh and show me its full output.
-3. If it reports failures, diagnose them and fix what you reasonably can,
-   then re-run it. Report anything you cannot fix.
-4. Once it prints READY, read ~/bizniz/README.md and give me a short
-   summary of the gate commands, then tell me to restart you from inside
-   the repo.
-
-Two things not to do:
-
-- Do not work around a skeleton clone or GitHub SSH failure by carrying on
-  without them. The Provisioner catches a missing skeleton and generates
-  the service from scratch instead, so the build then SUCCEEDS while
-  producing services with none of the skeleton's auth, Docker or routing
-  conventions. A red bootstrap is much cheaper than that.
-- Do not edit the test suite or the bootstrap checks to make them pass.
-  If the suite is red on a clean clone, that is the finding, and I want to
-  hear it.
-```
+It is deliberately not a second copy of the prompt. Two copies drift, and
+the one someone pastes would be whichever they found first.
 
 ## Why the restart matters
 
