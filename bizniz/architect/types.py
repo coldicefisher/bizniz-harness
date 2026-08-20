@@ -22,6 +22,64 @@ class ServiceDefinition(BaseModel):
         return v.lower() if isinstance(v, str) else v
     description: str
     workspace_name: str  # directory name for source code at project_root/<workspace_name>/
+
+    # ── Adopting a service that already exists ──────────────────────────
+    # Set ``external=True`` when the service is ALREADY RUNNING outside
+    # this project and must be attached to rather than materialized. The
+    # Provisioner then renders no template, writes no compose service
+    # block, and allocates no host port for it — it only records the
+    # dependency so app services can reach it.
+    #
+    # This is what lets a generated stack hook into an existing workspace
+    # instead of standing up a duplicate. Without it, declaring a database
+    # the host already runs produces a SECOND database with its own volume,
+    # silently, and the generated app talks to the empty one.
+    external: bool = False
+    # Pre-existing Docker network to join, e.g. "bizniz-net". Emitted in
+    # the compose ``networks:`` block as ``external: true`` and joined by
+    # every app service that depends_on this service.
+    external_network: Optional[str] = None
+    # Hostname to reach it on that network. Defaults to ``name``.
+    external_host: Optional[str] = None
+
+    # Extra compose volume entries, verbatim, e.g.
+    #   ["../../:/pipeline:ro"]
+    #
+    # Paths are relative to the COMPOSE FILE, matching every other volume
+    # in the generated block. Intended for reading code or data the host
+    # workspace already owns -- the natural companion to ``external``:
+    # a stack that adopts a running service usually also needs to import
+    # the modules that define it, and copying them instead is how two
+    # sources of truth start.
+    #
+    # Mount read-only unless there is a stated reason not to. A generated
+    # service writing into the host workspace is the failure `guard.py`
+    # exists to catch.
+    mounts: List[str] = []
+
+    # Extra environment for the generated compose block, merged OVER the
+    # per-language defaults. Needed whenever a declared mount has to be
+    # importable: mounting code at /pipeline does nothing unless PYTHONPATH
+    # names it, and a mount the service cannot import is a mount that
+    # silently does nothing.
+    environment: dict = {}
+
+    # Override the image's CMD, as a compose `command` string.
+    #
+    # Needed when a service must be started differently from how its
+    # skeleton's Dockerfile does it -- e.g. an Angular dev server that has
+    # to proxy /api to a sibling. The alternative is editing the skeleton's
+    # angular.json or Dockerfile in the generated project, which the
+    # skeleton contract forbids.
+    command: Optional[str] = None
+
+    # Interface to publish the host port on, e.g. "127.0.0.1".
+    #
+    # Left None the port binds every interface, which is REQUIRED for
+    # mobile work -- an Expo app on a phone or emulator reaches the API
+    # over the LAN, so forcing loopback globally would break those
+    # projects. Opt in per service where the stack is host-only.
+    bind_host: Optional[str] = None
     # CONTAINER port — the port the service listens on inside its container.
     # Stable across remaps; safe to use in Docker-network internal URLs
     # (e.g. ``http://backend:{port}`` from a sidecar joined to the same

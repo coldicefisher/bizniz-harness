@@ -62,6 +62,92 @@ _DEVICE_TYPES = {"mobile"}
 _APP_TYPES = {"backend", "frontend", "worker"} | _DEVICE_TYPES
 
 
+def _merge_env(env_path: Path, generated: str) -> str:
+    """Generated .env, with operator-added keys preserved.
+
+    The provisioner owns the keys it generates and nothing else. Anything a
+    human added by hand -- a database password for an adopted service, an
+    API key -- survives a re-provision.
+
+    Without this, ``write_text`` silently erased them, and the failure did
+    not look like an erased secret: the file regenerated cleanly, compose
+    then refused to interpolate a ``${VAR:?}`` reference, and the error
+    named the variable rather than the overwrite that removed it.
+
+    Values are never logged; only key names are compared.
+    """
+    if not env_path.exists():
+        return generated
+
+    def keys_of(text: str) -> set:
+        out = set()
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            out.add(line.split("=", 1)[0].strip())
+        return out
+
+    try:
+        existing = env_path.read_text()
+    except OSError:
+        return generated
+
+    generated_keys = keys_of(generated)
+
+    # Generated SECRETS are preserved once they exist, rather than minted
+    # fresh on every re-provision.
+    #
+    # A regenerated password desynchronises from state that already
+    # consumed it. FusionAuth kickstarts an admin user with
+    # FUSIONAUTH_ADMIN_PASSWORD on first boot and stores the hash; a later
+    # re-provision that mints a new one leaves the .env and the running
+    # service disagreeing, and the only symptom is a 401 on login with a
+    # password that looks correct in the file.
+    #
+    # Structural values (URLs, ports, names) still regenerate -- those must
+    # follow the architecture. Only credential-shaped keys are pinned.
+    secretish = ("PASSWORD", "SECRET", "API_KEY", "TOKEN", "PRIVATE_KEY")
+
+    def is_secret(key: str) -> bool:
+        return any(marker in key.upper() for marker in secretish)
+
+    existing_secrets = {}
+    for line in existing.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in generated_keys and is_secret(key):
+            existing_secrets[key] = stripped
+
+    if existing_secrets:
+        out_lines = []
+        for line in generated.splitlines():
+            stripped = line.strip()
+            if "=" in stripped and not stripped.startswith("#"):
+                key = stripped.split("=", 1)[0].strip()
+                if key in existing_secrets:
+                    out_lines.append(existing_secrets[key])
+                    continue
+            out_lines.append(line)
+        generated = "\n".join(out_lines) + "\n"
+    kept = [
+        line for line in existing.splitlines()
+        if "=" in line
+        and not line.strip().startswith("#")
+        and line.split("=", 1)[0].strip() not in generated_keys
+    ]
+    if not kept:
+        return generated
+
+    return (generated.rstrip("\n") + "\n\n"
+            + "# ── Preserved across re-provision ──────────────────────────\n"
+            + "# Added by hand, not generated. The provisioner owns only the\n"
+            + "# keys above and will not remove these.\n"
+            + "\n".join(kept) + "\n")
+
+
 class Provisioner:
     """Materializes a SystemArchitecture as a real project on disk + images.
 
@@ -135,6 +221,8 @@ class Provisioner:
         architecture: SystemArchitecture,
         project_name: str,
         prune: bool = False,
+        project_root: "str | Path | None" = None,
+        infra_dirname: str = "development",
     ) -> ProvisionResult:
         """Probe → reconcile → materialize.
 
@@ -146,13 +234,28 @@ class Provisioner:
         that exist in observed state but not in the desired architecture
         — e.g. removed during a refactor). Off by default to avoid
         clobbering work between runs.
+
+        ``project_root`` hooks the stack into an EXISTING workspace rather
+        than creating ``project_parent / project_slug``. Nothing here
+        deletes: ``create_structure`` is a no-op for directories that
+        exist and no code path in this module removes a file, so pointing
+        at a live repo adds service workspaces and an infra directory
+        beside whatever is already there.
+
+        ``infra_dirname`` picks the directory under ``infra/`` holding the
+        compose stack. Defaults to ``development`` so existing projects
+        are unchanged; set it to match a host repo that uses another
+        convention, because two infra directories in one repo is exactly
+        the confusion adoption is meant to avoid.
         """
         log = self._log
 
         # 1. Project root (idempotent).
         project = Project(
-            root=self._project_parent / architecture.project_slug,
+            root=(Path(project_root) if project_root is not None
+                  else self._project_parent / architecture.project_slug),
             project_name=project_name,
+            infra_dirname=infra_dirname,
         )
         project.create_structure()
 
@@ -209,7 +312,10 @@ class Provisioner:
             provisioned_services.append(ps)
 
         # 7. Compose + .env (always regenerated from desired architecture).
-        compose_yaml = build_compose(architecture, template_outputs, architecture.project_slug)
+        compose_yaml = build_compose(
+            architecture, template_outputs, architecture.project_slug,
+            infra_dirname=project.infra_dirname,
+        )
         env_text = build_env_file(
             architecture, self._collect_env_vars(template_outputs),
         )
@@ -217,7 +323,7 @@ class Provisioner:
         env_path = project.dev_root / ".env"
         project.dev_root.mkdir(parents=True, exist_ok=True)
         compose_path.write_text(compose_yaml)
-        env_path.write_text(env_text)
+        env_path.write_text(_merge_env(env_path, env_text))
         # Host-only vars (host-perspective URLs etc.) go to .env.host,
         # which no compose service references — containers must never
         # see host-perspective addresses.
@@ -378,7 +484,14 @@ class Provisioner:
             probed = state.get_service(svc.name)
             arch_state = svc.evolve_state or "unchanged"
 
-            if probed is None:
+            if getattr(svc, "external", False):
+                # Already running outside this project. Never materialize,
+                # never allocate a host port for it -- the host stack owns
+                # both. Reported so the log says it was adopted rather
+                # than silently absent.
+                action = "preserve"
+                reason = "external — adopted from the host stack"
+            elif probed is None:
                 action = "create"
                 reason = "not present in observed state"
             elif not probed.workspace_exists_on_disk and svc.service_type in _APP_TYPES:

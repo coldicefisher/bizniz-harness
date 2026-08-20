@@ -28,12 +28,21 @@ from bizniz.workspace.local_workspace import LocalWorkspace
 
 class Project:
 
-    def __init__(self, root: str | Path, project_name: str, bizniz_db=None):
+    def __init__(self, root: str | Path, project_name: str, bizniz_db=None,
+                 infra_dirname: str = "development"):
         self._root = Path(root).resolve()
         self._root.mkdir(parents=True, exist_ok=True)
         self._project_name = project_name
         self._bizniz_db = bizniz_db
         self._db = None
+        # Which directory under ``infra/`` holds the compose stack.
+        # Defaults to "development" so every existing project is
+        # byte-identical; overridable so a generated stack can land in a
+        # host repo that already uses a different convention (e.g. this
+        # project's own ``infra/dev/``). Adopting the host's layout is
+        # the point of hooking into an existing workspace -- two infra
+        # directories in one repo is exactly the confusion to avoid.
+        self._infra_dirname = infra_dirname
 
     @property
     def root(self) -> Path:
@@ -44,9 +53,13 @@ class Project:
         return self._project_name
 
     @property
+    def infra_dirname(self) -> str:
+        return self._infra_dirname
+
+    @property
     def dev_root(self) -> Path:
-        """Returns root / infra / development (Docker configs live here)."""
-        return self._root / "infra" / "development"
+        """Returns root / infra / <infra_dirname> (Docker configs live here)."""
+        return self._root / "infra" / self._infra_dirname
 
     @property
     def docker_root(self) -> Path:

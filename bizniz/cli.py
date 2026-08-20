@@ -32,9 +32,62 @@ from typing import List, Optional
 
 DEFAULT_PROJECTS_ROOT = Path.home() / "bizniz_projects"
 COMPOSE_REL = Path("infra") / "development" / "docker-compose.yml"
+#: Legacy default above; use discover_compose() for anything that
+#: may run against an adopted workspace.
 
 
 # ── project / state resolution ──────────────────────────────────────────
+
+
+def discover_compose(project_root: Path, service_names=None) -> Path:
+    """The project's compose file, whatever its infra directory is called.
+
+    ``infra/development/`` is the generated default, but a stack adopted
+    into an existing workspace uses that workspace's convention instead
+    (this repo's console lives in ``infra/management/`` so it does not
+    collide with the pipeline's own ``infra/dev/``).
+
+    Guessing "development" and falling back silently is worse than it
+    looks: the smoke gate then cannot ask compose for the real host port
+    bindings, defaults to the CONTAINER ports, and probes
+    ``localhost:8000`` — which on a machine running several bizniz
+    projects lands on a DIFFERENT project's API and reports its routes as
+    passes.
+    """
+    preferred = project_root / "infra" / "development" / "docker-compose.yml"
+    if preferred.exists():
+        return preferred
+    infra = project_root / "infra"
+    if not infra.is_dir():
+        return preferred
+    found = sorted(infra.glob("*/docker-compose.yml"))
+    if not found:
+        return preferred
+    if len(found) == 1:
+        return found[0]
+
+    # More than one infra directory -- an adopted workspace has its own
+    # stack beside the host's. Pick by CONTENT, not by name: the compose
+    # that declares this project's services. Sorting alphabetically would
+    # pick the host's `infra/dev/` over the console's `infra/management/`
+    # and gate the wrong stack.
+    wanted = {str(n) for n in (service_names or [])}
+    if wanted:
+        best, best_score = None, 0
+        for candidate in found:
+            try:
+                import yaml
+                declared = set(
+                    (yaml.safe_load(candidate.read_text()) or {}).get("services") or {}
+                )
+            except Exception:
+                continue
+            score = len(declared & wanted)
+            if score > best_score:
+                best, best_score = candidate, score
+        if best is not None:
+            return best
+    return found[0]
 
 
 def projects_root() -> Path:
@@ -64,9 +117,26 @@ def resolve_project(arg: str) -> Path:
 
 
 def compose_path(project_root: Path) -> Path:
-    path = project_root / COMPOSE_REL
+    """The project's compose file.
+
+    Goes through `discover_compose` so `up`, `down` and `test` work against
+    a stack adopted into an existing workspace, whose infra directory is
+    named for that workspace's convention rather than "development".
+
+    Service names come from the persisted architecture when one is
+    available: a repo can hold more than one compose file (this project's
+    console lives beside the pipeline's own stack), and picking the wrong
+    one means `bizniz down` tears down the host's containers.
+    """
+    names = None
+    arch = _architecture_from_project_db(project_root)
+    if arch is not None:
+        names = [svc.name for svc in arch.services]
+    path = discover_compose(project_root, service_names=names)
     if not path.exists():
-        raise SystemExit(f"error: no compose file at {path}")
+        raise SystemExit(
+            f"error: no compose file at {path} "
+            f"(looked under {project_root / 'infra'})")
     return path
 
 
@@ -80,15 +150,61 @@ def latest_run_dir(project_root: Path) -> Optional[Path]:
     return runs[-1] if runs else None
 
 
+def _architecture_from_project_db(project_root: Path):
+    """Latest architecture snapshot from the project DB, or None.
+
+    Read-only and deliberately forgiving: this is a fallback, so any
+    failure to open or parse the snapshot means "no snapshot" rather than
+    an error that masks the real one.
+    """
+    from bizniz.architect.types import SystemArchitecture
+
+    if not (project_root / ".bizniz" / "project.db").exists():
+        return None
+    try:
+        from bizniz.project.project import Project
+
+        snap = Project(project_root, project_root.name).db.get_latest_architecture()
+        if not snap:
+            return None
+        # sqlite3.Row from the project DB; the payload lives in
+        # `snapshot_json`. Mapping-style access rather than indexing so
+        # this survives a column being added before it.
+        if hasattr(snap, "keys"):
+            snap = snap["snapshot_json"]
+        data = snap if isinstance(snap, dict) else json.loads(snap)
+        for key in ("architecture", "payload"):
+            if "services" not in data and key in data:
+                data = data[key]
+                if isinstance(data, str):
+                    data = json.loads(data)
+        return SystemArchitecture.model_validate(data)
+    except Exception:
+        return None
+
+
 def load_architecture(project_root: Path):
     """Load the persisted SystemArchitecture from the latest run."""
     from bizniz.architect.types import SystemArchitecture
 
     run_dir = latest_run_dir(project_root)
     if run_dir is None:
+        # No driver run directory. That does NOT mean the project is
+        # unprovisioned: the Provisioner records an architecture snapshot in
+        # the project DB on every run, and a project provisioned through the
+        # Provisioner API directly (or adopted into an existing workspace)
+        # has the snapshot without ever having had a driver run.
+        #
+        # Falling back here is what lets the gates work against such a
+        # project. Without it, `smoke` reports "has the pipeline provisioned
+        # this project?" for a project that is fully provisioned and running.
+        arch = _architecture_from_project_db(project_root)
+        if arch is not None:
+            return arch
         raise SystemExit(
-            f"error: no runs recorded under {project_root} — "
-            "has the pipeline provisioned this project?"
+            f"error: no runs recorded under {project_root} and no "
+            f"architecture snapshot in its project DB — has the pipeline "
+            f"provisioned this project?"
         )
     arch_path = run_dir / "architect.json"
     if not arch_path.exists():

@@ -28,6 +28,22 @@ from bizniz.provisioner.templates.base import (
 )
 
 
+#: Digest-pinned rather than ``:latest``.
+#:
+#: ``:latest`` means an image can change under a project between two runs
+#: of the same commit, which is the one thing a reproducible build cannot
+#: tolerate -- and FusionAuth carries a database schema, so a silent major
+#: bump is a migration nobody asked for. This digest is the one already
+#: running in ~/MUSE/conduit, so it is known-good on this machine.
+#:
+#: To update: pull the new tag, `docker inspect --format='{{index
+#: .RepoDigests 0}}' fusionauth/fusionauth-app:<tag>`, paste it here.
+FUSIONAUTH_IMAGE = (
+    "fusionauth/fusionauth-app@sha256:"
+    "fe44e9aba57b5343ef8645a346ddcc85b870e2f7b66c1e88c28c6f7c5641d517"
+)
+
+
 class FusionAuthTemplate(InfraTemplate):
 
     DEFAULT_CONTAINER_PORT = 9011
@@ -79,7 +95,18 @@ class FusionAuthTemplate(InfraTemplate):
         # hostname-safe form (letters, digits, hyphens) before building
         # the email.
         email_safe_slug = re.sub(r"[^a-zA-Z0-9-]", "-", slug).strip("-") or "bizniz"
-        admin_email = f"admin@{email_safe_slug}.local"
+        # ``.example`` -> the seeded admin CANNOT LOG IN.
+        #
+        # `.local` is a special-use TLD (RFC 6762, mDNS). The FastAPI
+        # skeleton validates login bodies with pydantic `EmailStr`, whose
+        # email-validator backend rejects special-use names outright:
+        #   "The part after the @-sign is a special-use or reserved name"
+        # So FusionAuth seeds a user the generated API then refuses to
+        # accept — a 422 on the one account every new project logs in with.
+        #
+        # `example.com` is reserved for exactly this (RFC 2606) and passes
+        # validation, which is why the shipped muvnit project uses it.
+        admin_email = f"admin@{email_safe_slug}.example.com"
         admin_password = "ChangeMe123!"
         api_key = "bf69486b-4733-4470-a592-f1bfce7af580"
         issuer = f"http://{own_name}:{self.DEFAULT_CONTAINER_PORT}"
@@ -219,8 +246,9 @@ class FusionAuthTemplate(InfraTemplate):
             ],
         }
 
+        _bind = getattr(ctx.service, "bind_host", None)
         compose_service = {
-            "image": "fusionauth/fusionauth-app:latest",
+            "image": FUSIONAUTH_IMAGE,
             "depends_on": {
                 pg_name: {"condition": "service_healthy"},
             },
@@ -234,7 +262,8 @@ class FusionAuthTemplate(InfraTemplate):
                 "FUSIONAUTH_APP_KICKSTART_FILE":
                     "/usr/local/fusionauth/kickstart/kickstart.json",
             },
-            "ports": [f"{host_port}:9011"],
+            "ports": [f"{_bind}:{host_port}:9011" if _bind
+                      else f"{host_port}:9011"],
             "volumes": [
                 "./fusionauth/kickstart:/usr/local/fusionauth/kickstart:ro",
             ],

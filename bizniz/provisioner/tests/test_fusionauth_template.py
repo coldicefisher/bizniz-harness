@@ -27,8 +27,14 @@ def _ctx(svc, slug="petgroomer") -> TemplateContext:
 
 
 def test_compose_uses_official_image():
+    """Digest-pinned, not ``:latest``. FusionAuth carries a database
+    schema, so an image that changes under a project between two runs of
+    the same commit is an unrequested migration."""
+    from bizniz.provisioner.templates.fusionauth import FUSIONAUTH_IMAGE
+
     out = FusionAuthTemplate().render(_ctx(_service()))
-    assert out.compose_service["image"] == "fusionauth/fusionauth-app:latest"
+    assert out.compose_service["image"] == FUSIONAUTH_IMAGE
+    assert out.compose_service["image"].startswith("fusionauth/fusionauth-app@sha256:")
 
 
 def test_compose_depends_on_postgres_healthy():
@@ -140,7 +146,11 @@ def test_kickstart_sets_oauth_redirect_for_frontends():
 def test_env_vars_include_admin_credentials_and_api_key():
     out = FusionAuthTemplate().render(_ctx(_service(), slug="myproj"))
     env = out.env_vars
-    assert env["FUSIONAUTH_ADMIN_EMAIL"].endswith("@myproj.local")
+    # ``.example.com`` (RFC 2606), never ``.local``: the FastAPI
+    # skeleton validates login bodies with pydantic ``EmailStr``, whose
+    # backend rejects special-use names, so a ``.local`` admin got a 422
+    # on the one account every new project logs in with.
+    assert env["FUSIONAUTH_ADMIN_EMAIL"].endswith("@myproj.example.com")
     assert env["FUSIONAUTH_ADMIN_PASSWORD"]
     assert env["FUSIONAUTH_API_KEY"]
     assert env["FUSIONAUTH_APPLICATION_ID"]
@@ -168,7 +178,7 @@ def test_admin_email_sanitizes_underscore_slug():
     out = FusionAuthTemplate().render(_ctx(_service(), slug="recipe_box"))
     parsed = json.loads(out.infra_files["fusionauth/kickstart/kickstart.json"])
     email = parsed["variables"]["adminEmail"]
-    assert email == "admin@recipe-box.local"
+    assert email == "admin@recipe-box.example.com"
 
 
 def test_admin_email_handles_pathological_slug():

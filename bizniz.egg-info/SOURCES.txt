@@ -2,8 +2,12 @@ README.md
 pyproject.toml
 requirements.txt
 bizniz/base_ai_agent.py
+bizniz/cleanup.py
+bizniz/cli.py
 bizniz.egg-info/PKG-INFO
 bizniz.egg-info/SOURCES.txt
 bizniz.egg-info/dependency_links.txt
+bizniz.egg-info/entry_points.txt
 bizniz.egg-info/requires.txt
 bizniz.egg-info/top_level.txt
+tests/test_examples_smoke.py

@@ -169,7 +169,12 @@ class SmokePhase:
         critical_failures: List[str] = []
         # Reset per-run state; resolve compose path from project_root.
         self._host_port_cache = {}
-        self._compose_path = project_root / "infra" / "development" / "docker-compose.yml"
+        from bizniz.cli import discover_compose
+        self._compose_path = discover_compose(
+            project_root,
+            service_names=[s.name for s in getattr(architecture, "services", [])]
+            if architecture is not None else None,
+        )
 
         self._log(
             f"SmokePhase: starting for "
