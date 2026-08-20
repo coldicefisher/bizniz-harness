@@ -26,6 +26,7 @@ The workspace root is bind-mounted at ``/workspace`` inside the container and
 ``PYTHONPATH=/workspace`` is set so plain ``import module_name`` works.
 """
 
+import atexit
 import subprocess
 import traceback
 import uuid
@@ -38,6 +39,32 @@ from bizniz.environment.types import (
     ExecutionEnvironmentResult,
     ExecutionEnvironmentErrorDetails,
 )
+
+
+
+# Containers started by this process, by id. An explicit registry plus one
+# atexit hook, rather than a ``__del__`` per instance -- see the note where
+# ``__del__`` used to be. Cleanup then happens once, at a known moment,
+# whether or not the environment object is still referenced.
+_LIVE_CONTAINERS: set = set()
+
+
+def _remove_container(container_id: str) -> None:
+    """Force-remove a container, best effort. Never raises."""
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", container_id],
+            capture_output=True, timeout=10,
+        )
+    except Exception:
+        pass
+    _LIVE_CONTAINERS.discard(container_id)
+
+
+@atexit.register
+def _remove_live_containers() -> None:
+    for container_id in list(_LIVE_CONTAINERS):
+        _remove_container(container_id)
 
 
 class DockerPytestEnvironment(BaseExecutionEnvironment):
@@ -110,6 +137,7 @@ class DockerPytestEnvironment(BaseExecutionEnvironment):
                 f"Failed to start persistent container: {proc.stderr.strip()}"
             )
         self._container_id = proc.stdout.strip()
+        _LIVE_CONTAINERS.add(self._container_id)
 
         # Create /workspace dir and sync files into container
         subprocess.run(
@@ -141,6 +169,7 @@ class DockerPytestEnvironment(BaseExecutionEnvironment):
                 ["docker", "rm", "-f", self._container_id],
                 capture_output=True, timeout=10,
             )
+            _LIVE_CONTAINERS.discard(self._container_id)
             self._container_id = None
 
     @staticmethod
@@ -187,11 +216,27 @@ class DockerPytestEnvironment(BaseExecutionEnvironment):
         except Exception:
             pass
 
-    def __del__(self):
-        try:
-            self.stop()
-        except Exception:
-            pass
+    # NO ``__del__``. It used to call ``stop()``, and ``stop()`` runs
+    # ``docker cp`` and ``docker rm`` -- blocking I/O, at whatever moment
+    # the garbage collector happens to drop the last reference.
+    #
+    # Two things were wrong with that. The visible one: it made the unit
+    # tests nondeterministic. Every test here patches
+    # ``subprocess.run`` with a fixed list of side effects, so an
+    # environment built in an EARLIER test and collected during a LATER
+    # one silently consumed the later test's side effects, shifted every
+    # subsequent call by one, and failed it with an empty container id.
+    # Which test broke moved with collection size, so it read as an
+    # unrelated flake.
+    #
+    # The one that matters in production: implicit sync-back. ``stop()``
+    # copies files OUT of the container into the workspace. Dropping a
+    # reference should not write to disk, and at interpreter shutdown it
+    # may run against half-torn-down module globals.
+    #
+    # Cleanup still happens, in two deterministic places instead: the
+    # atexit hook registered above, and ``_cleanup_stale_containers`` on
+    # the next start. Containers are also started with ``--rm``.
 
     # ── BaseExecutionEnvironment interface ──────────────────────────────────────
 
