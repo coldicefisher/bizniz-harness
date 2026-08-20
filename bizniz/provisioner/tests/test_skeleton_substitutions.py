@@ -177,3 +177,82 @@ class TestExpoIdentitySubstitutions:
         apply_substitutions("expo", ws, arch, _mobile())
         app_json = (ws / "app.json").read_text()
         assert '"package": "com.coldicefisher.app2fast_4u"' in app_json
+
+
+class TestAngularIdentitySubstitution:
+    """The angular skeleton ships its own name in the two places a user
+    reads a product's name from: the browser tab and the top bar.
+
+    Nothing else rewrites them — they are not service references, so the
+    react proxy substitution has no reason to touch them and no gate
+    inspects rendered text. bizniz-tycoon's management console therefore
+    shipped complete and fully tested with a tab reading "App". It was
+    found by opening the site, which is the same way the root-route
+    placeholder was found, and for the same reason: scaffolding that
+    renders as success is invisible to everything except a pair of eyes.
+    """
+
+    def _angular_workspace(self, tmp_path):
+        ws = tmp_path / "frontend"
+        (ws / "src" / "app" / "shared" / "layout" / "topbar").mkdir(parents=True)
+        (ws / "src" / "index.html").write_text(
+            "<!doctype html>\n<html>\n<head>\n"
+            "  <title>App</title>\n</head>\n<body></body>\n</html>\n")
+        (ws / "src" / "app" / "shared" / "layout" / "topbar"
+         / "topbar.component.html").write_text(
+            '<mat-toolbar>\n'
+            '    <span class="topbar-brand clickable" routerLink="/">App</span>\n'
+            '</mat-toolbar>\n')
+        return ws
+
+    def _apply(self, ws, project_name="Bizniz Tycoon Console"):
+        arch = SystemArchitecture(
+            project_name=project_name, project_slug="console",
+            services=[_frontend()], description="",
+        )
+        return apply_substitutions("angular", ws, arch, _frontend())
+
+    def test_browser_tab_title_becomes_the_project_name(self, tmp_path):
+        ws = self._angular_workspace(tmp_path)
+        self._apply(ws)
+        html = (ws / "src" / "index.html").read_text()
+        assert "<title>Bizniz Tycoon Console</title>" in html
+        assert "<title>App</title>" not in html
+
+    def test_topbar_brand_becomes_the_project_name(self, tmp_path):
+        ws = self._angular_workspace(tmp_path)
+        self._apply(ws)
+        bar = (ws / "src" / "app" / "shared" / "layout" / "topbar"
+               / "topbar.component.html").read_text()
+        assert ">Bizniz Tycoon Console</span>" in bar
+        assert ">App</span>" not in bar
+
+    def test_both_files_are_reported_as_applied(self, tmp_path):
+        """A substitution that silently no-ops is the failure mode this
+        module's own docstring warns about — the skeleton moves, the
+        pattern stops matching, and nobody notices for a release."""
+        ws = self._angular_workspace(tmp_path)
+        applied = self._apply(ws)
+        assert len(applied) == 2, applied
+
+    def test_missing_file_is_survivable(self, tmp_path):
+        """Skeleton layouts drift between versions; a missing file must
+        skip, not crash a provision that is otherwise fine."""
+        ws = tmp_path / "frontend"
+        (ws / "src").mkdir(parents=True)
+        (ws / "src" / "index.html").write_text("  <title>App</title>\n")
+        applied = self._apply(ws)
+        assert applied == ["src/index.html:<title>App</title>"] or len(applied) == 1
+
+    def test_the_real_skeleton_still_matches_these_patterns(self):
+        """Positive control against the shipped skeleton. If someone edits
+        the skeleton's markup, these substitutions turn into silent no-ops
+        and every future app is called "App" again."""
+        from bizniz.architect.skeletons import skeletons_root
+        root = skeletons_root() / "bizniz-skeleton-angular"
+        if not root.exists():
+            pytest.skip("angular skeleton not present")
+        assert "<title>App</title>" in (root / "src" / "index.html").read_text()
+        bar = (root / "src" / "app" / "shared" / "layout" / "topbar"
+               / "topbar.component.html").read_text()
+        assert 'routerLink="/">App</span>' in bar

@@ -102,8 +102,30 @@ _SUBSTITUTIONS: dict = {
             ),
         ),
     ],
-    # angular / teams-frontend / others can register here when they
-    # ship similar hardcoded refs. Empty list = no substitutions.
+    # The angular skeleton ships its own identity in two places, and both
+    # render as the product's name to a user: the browser tab title and the
+    # brand in the top bar. Neither is a service reference, so nothing else
+    # rewrites them, and a generated app therefore calls itself "App"
+    # forever. bizniz-tycoon's management console shipped a complete,
+    # tested, working product whose tab said "App" — found by looking at
+    # it, not by any gate. Same family as the root-route placeholder: the
+    # skeleton's scaffolding surviving into the delivered application.
+    "angular": [
+        _Substitution(
+            file="src/index.html",
+            find="<title>App</title>",
+            compute=lambda arch, svc: f"<title>{arch.project_name}</title>",
+        ),
+        _Substitution(
+            file="src/app/shared/layout/topbar/topbar.component.html",
+            find='routerLink="/">App</span>',
+            compute=lambda arch, svc: (
+                f'routerLink="/">{arch.project_name}</span>'
+            ),
+        ),
+    ],
+    # teams-frontend / others can register here when they ship similar
+    # hardcoded refs. Empty list = no substitutions.
 }
 
 
