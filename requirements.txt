@@ -1,3 +1,34 @@
-openai~=2.26.0
-pymysql~=1.1.0
-google-genai>=1.0.0
+# Runtime dependencies, derived by walking every non-test import in
+# bizniz/ with the AST rather than by recollection.
+#
+# Lower bounds are the versions this repo is developed and tested against.
+# Upper bounds appear only where a major release is KNOWN to break us, and
+# each one says which import it breaks, so the cap can be lifted by
+# checking one thing rather than by guessing.
+#
+# All three model backends are hard requirements even though a given run
+# uses one of them. Each is imported at module import time by its client,
+# so an absent package is not graceful degradation, it is an ImportError
+# at the moment of routing. If you want a slimmer install, make them
+# extras first and give each client an import guard second.
+
+# Core
+pydantic>=2.13
+PyYAML>=6.0
+
+# Model backends (see note above)
+anthropic>=0.97
+openai>=2.26
+google-genai>=1.74
+
+# MCP server: `bizniz mcp`, and the per-issue server ClaudeCliCoder spawns.
+# Capped below 2.0: that release moved `mcp.server.fastmcp` to
+# `mcp.server.mcpserver`, and bizniz/mcp_server/server.py imports the old
+# path. Lift the cap when that module is ported, not before.
+mcp>=1.27,<2
+
+# HTTP: FusionAuth admin API, auth contract probes, integration testers
+requests>=2.32
+
+# Cost/telemetry database
+PyMySQL>=1.1

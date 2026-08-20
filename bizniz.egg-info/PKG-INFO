@@ -1,9 +1,87 @@
 Metadata-Version: 2.4
 Name: bizniz
 Version: 0.1.0
-Summary: AI Coding system
+Summary: Deterministic build harness: gates, provisioner, and agent roles for turning a problem statement into a running, tested application
 Author-email: Jamey Harris <jameycharris@yahoo.com>
+Classifier: Private :: Do Not Upload
+Classifier: Programming Language :: Python :: 3
 Requires-Python: >=3.10
-Requires-Dist: openai~=2.26.0
-Requires-Dist: pymysql~=1.1.0
-Requires-Dist: google-genai>=1.0.0
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.13
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: anthropic>=0.97
+Requires-Dist: openai>=2.26
+Requires-Dist: google-genai>=1.74
+Requires-Dist: mcp<2,>=1.27
+Requires-Dist: requests>=2.32
+Requires-Dist: PyMySQL>=1.1
+
+# Bizniz
+
+Bizniz turns natural-language problem statements into working,
+tested applications — web stacks and native mobile apps — by pairing
+**deterministic tooling** (provisioning, docker orchestration, hard
+test/smoke/validation gates) with **LLM agents** that do the code
+work under those gates.
+
+It runs in two modes:
+
+## Claude-native harness mode (primary)
+
+Claude Code drives the loop directly, using bizniz as its toolkit:
+
+- **`bizniz` CLI** — one gate surface for every project type:
+  `projects`, `status`, `up/down`, `smoke`, `test`, `validate`,
+  `perf`, `mcp`. Web services gate via compose/pytest/curl; Expo
+  mobile workspaces gate via `tsc`/`jest`/`expo lint` and a release
+  build → `adb install` → Maestro flow on an emulator. Every gate is
+  a hard exit code.
+- **`.claude/agents/`** — the pipeline's battle-tuned role prompts as
+  subagents: `bizniz-coder` (Haiku), `bizniz-architect`,
+  `bizniz-code-reviewer`, `bizniz-quality-engineer` (Opus, with the
+  tests-only bias firewall).
+- **`.claude/skills/`** — `/bizniz-fix` (gate-driven convergence:
+  cluster failures by root cause → dispatch coders → diff-audit →
+  re-gate until green or stalled) and `/bizniz-review` (parallel
+  CR+QE + deterministic gates → one clustered defect report).
+- **`.mcp.json`** — session-wide MCP server exposing cross-issue
+  context (prior issues, test output, symbol validation, audit
+  findings, auth contract) to any agent; tools take a project slug.
+
+The working method: pin a contract, dispatch parallel subagents per
+slice, diff-audit every result, verify every claim against the gates
+independently, send diagnoses back to the same agent (it keeps its
+context), and fix root causes in the harness/skeletons — not in the
+generated project — whenever a bug is the factory's fault.
+
+**First product shipped this way: [Muvnit](https://muvnit.com)** —
+a trucking-paperwork app (Expo + FastAPI + FusionAuth + a tiered
+document-AI worker). Four milestones, all gates green, extraction
+proven on 100+ real receipts/BOLs: tier-1 tesseract heuristics, then
+two-model convergence (local Ollama VLMs, OpenRouter-ready) where
+fields are confirmed only when independent models agree — and
+flagged for review with candidates when they don't.
+
+## Autonomous pipeline mode (legacy/batch)
+
+`examples/v2_build.py` runs the original agent pipeline end-to-end
+without supervision: Planner → Architect → Provisioner (+ FusionAuth
+agent) → per-service Engineer → Coder/Tester/Debugger loops →
+QE + CR review/repair → integration tests (pytest+httpx, Playwright)
+against the live stack → UX review → refactor. Same skeletons, same
+gates, same artifacts. Still the right tool for hands-off batch
+builds and A/B baselines (`bizniz/perf_log/` measures both modes).
+
+## Skeletons
+
+Projects are seeded from contract-bearing skeleton repos
+(`bizniz-skeleton-fastapi`, `-react`, `-angular`, `-expo`, …). Each
+ships a `SKELETON.md` hard contract: auto-discovery conventions
+(FastAPI routes, expo-router screens), auth delegation to FusionAuth,
+the gate table, and the accumulated field lessons (Hermes runtime
+constraints, honest API typing, network-security config plugins).
+
+## Orientation
+
+Read `CLAUDE.md` for the current session state, commands, and
+invariants. Recent narrative: `docs/changes/`.

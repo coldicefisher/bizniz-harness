@@ -438,3 +438,92 @@ def test_compose_discovery_falls_back_without_a_hint(tmp_path):
     f = tmp_path / "infra" / "development" / "docker-compose.yml"
     f.write_text("services: {}\n")
     assert discover_compose(tmp_path) == f
+
+
+# ── generated credentials must be per project, and stable ───────────────
+
+def _fa_ctx(tmp_path, slug="proj"):
+    from bizniz.provisioner.templates.base import TemplateContext
+    fa = svc(name="fusionauth", service_type="auth", framework="fusionauth",
+             language="java", workspace_name="", port=9011)
+    pg = svc(name="postgres", service_type="database", framework="postgres",
+             language="sql", workspace_name="")
+    arch = _arch([pg, fa])
+    return TemplateContext(service=fa, project_slug=slug,
+                           project_root=tmp_path, architecture=arch)
+
+
+def _render(tmp_path, slug="proj"):
+    from bizniz.provisioner.templates.fusionauth import FusionAuthTemplate
+    return FusionAuthTemplate().render(_fa_ctx(tmp_path, slug))
+
+
+def test_admin_password_is_not_a_source_constant(tmp_path):
+    """It was `ChangeMe123!` in every project ever cut from this factory."""
+    import inspect
+    from bizniz.provisioner.templates import fusionauth
+    assert "ChangeMe123" not in inspect.getsource(fusionauth)
+    assert _render(tmp_path).env_vars["FUSIONAUTH_ADMIN_PASSWORD"]
+
+
+def test_api_key_is_not_a_source_constant(tmp_path):
+    """The worse half: a hardcoded GUID meant every stack on a host
+    answered to the same FusionAuth ADMIN key, including stacks built by
+    anyone who had read the file."""
+    import inspect
+    from bizniz.provisioner.templates import fusionauth
+    assert "bf69486b-4733-4470-a592-f1bfce7af580" not in \
+        inspect.getsource(fusionauth)
+    assert _render(tmp_path).env_vars["FUSIONAUTH_API_KEY"]
+
+
+def test_two_projects_get_different_credentials(tmp_path):
+    a = _render(tmp_path / "a", "a").env_vars
+    b = _render(tmp_path / "b", "b").env_vars
+    assert a["FUSIONAUTH_API_KEY"] != b["FUSIONAUTH_API_KEY"]
+    assert a["FUSIONAUTH_ADMIN_PASSWORD"] != b["FUSIONAUTH_ADMIN_PASSWORD"]
+
+
+def test_reprovision_reuses_the_credentials_already_in_env(tmp_path):
+    """Kickstart runs once, on an empty volume, and stores a password
+    HASH. Minting a fresh value on re-provision desynchronises `.env` from
+    what FusionAuth will seed the next time the volume is recreated, and
+    the only symptom is a 401 with a password that looks right."""
+    (tmp_path / "infra" / "development").mkdir(parents=True)
+    (tmp_path / "infra" / "development" / ".env").write_text(
+        "FUSIONAUTH_ADMIN_PASSWORD=already-provisioned\n"
+        "FUSIONAUTH_API_KEY=11111111-2222-3333-4444-555555555555\n")
+    env = _render(tmp_path).env_vars
+    assert env["FUSIONAUTH_ADMIN_PASSWORD"] == "already-provisioned"
+    assert env["FUSIONAUTH_API_KEY"] == "11111111-2222-3333-4444-555555555555"
+
+
+def test_kickstart_and_env_agree_on_the_password(tmp_path):
+    """The two halves that must never drift apart: what FusionAuth seeds
+    and what the application authenticates with."""
+    import json
+    out = _render(tmp_path)
+    kickstart = json.loads(out.infra_files["fusionauth/kickstart/kickstart.json"])
+    assert kickstart["variables"]["adminPassword"] == \
+        out.env_vars["FUSIONAUTH_ADMIN_PASSWORD"]
+    assert kickstart["variables"]["apiKey"] == out.env_vars["FUSIONAUTH_API_KEY"]
+
+
+def test_credential_readback_follows_a_renamed_infra_directory(tmp_path):
+    """Adopted workspaces do not use `infra/development`."""
+    (tmp_path / "infra" / "management").mkdir(parents=True)
+    (tmp_path / "infra" / "management" / ".env").write_text(
+        "FUSIONAUTH_API_KEY=adopted-key\n")
+    assert _render(tmp_path).env_vars["FUSIONAUTH_API_KEY"] == "adopted-key"
+
+
+def test_generated_password_is_safe_in_a_compose_env_file(tmp_path):
+    """`.env` is read by docker compose: `$` interpolates and quotes
+    truncate, so a password that is merely strong is not sufficient."""
+    from bizniz.provisioner.templates.fusionauth import _generate_admin_password
+    for _ in range(50):
+        pw = _generate_admin_password()
+        assert not (set(pw) & set("$\"'`\\ #\n")), pw
+        assert len(pw) >= 16
+        assert any(c.isupper() for c in pw) and any(c.islower() for c in pw)
+        assert any(c.isdigit() for c in pw)

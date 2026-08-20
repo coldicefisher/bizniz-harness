@@ -6,10 +6,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bizniz"
 version = "0.1.0"
-description = "AI Coding system"
+description = "Deterministic build harness: gates, provisioner, and agent roles for turning a problem statement into a running, tested application"
+readme = "README.md"
 requires-python = ">=3.10"
 authors = [
     {name = "Jamey Harris", email = "jameycharris@yahoo.com"},
+]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
 ]
 
 
@@ -20,8 +25,35 @@ dynamic = ["dependencies"]
 bizniz = "bizniz.cli:main"
 
 
-[tool.setuptools]
-packages = ["bizniz"]
+[tool.setuptools.packages.find]
+# `packages = ["bizniz"]` was WRONG and quietly so. setuptools takes that
+# list literally: it shipped the six top-level modules and none of the
+# fifty subpackages, so a wheel built from this repo installed a `bizniz`
+# command that raised ImportError on its first call. Nobody noticed
+# because every install here has been `pip install -e .`, which puts the
+# source tree on the path and never consults this list.
+include = ["bizniz*"]
+# Test packages only. The pattern is anchored at a dot on purpose:
+# `bizniz.auth_agent.contract_tests` and `bizniz.perf_tests` are RUNTIME
+# modules that happen to end in "tests", and a looser `*tests*` would drop
+# both -- silently, since the failure is an ImportError on a code path
+# that only runs during an auth phase or a perf comparison.
+exclude = ["*.tests", "*.tests.*"]
+
+
+[tool.setuptools.package-data]
+# Files the package reads at runtime and that are not Python, so nothing
+# else would carry them into a wheel.
+#
+#   docker/Dockerfile.runner, docker/requirements.txt
+#       built by DockerPytestEnvironment to run generated tests
+#   ux_designer/sidecars/*.cjs
+#       the Playwright capture sidecar, executed by node
+bizniz = [
+    "docker/Dockerfile.runner",
+    "docker/requirements.txt",
+    "ux_designer/sidecars/*.cjs",
+]
 
 
 [tool.setuptools.dynamic]
@@ -32,4 +64,6 @@ dependencies = { file = ["requirements.txt"] }
 addopts = "-m 'not functional'"
 markers = [
     "functional: tests that call real external APIs (OpenAI). Run with: pytest -m functional",
+    "smoke: stands up a real docker stack",
+    "timeout: per-test wall-clock budget",
 ]

@@ -652,7 +652,9 @@ skeleton's `get_current_user` and `require_roles` dependencies.
 
 ## Test Users
 
-{chr(10).join(user_lines) if user_lines else "- `admin@<project>.local` / `ChangeMe123!` — roles: admin (created by kickstart)"}
+{chr(10).join(user_lines) if user_lines else "- `admin@<project>.example.com` / see `FUSIONAUTH_ADMIN_PASSWORD` in "
+     "`infra/*/.env` — roles: admin (created by kickstart, password "
+     "generated per project)"}
 
 ## Auth Endpoints (provided by skeleton)
 

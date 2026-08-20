@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
+import string
+import uuid
 
 from bizniz.provisioner.templates.base import (
     InfraTemplate,
@@ -33,8 +36,8 @@ from bizniz.provisioner.templates.base import (
 #: ``:latest`` means an image can change under a project between two runs
 #: of the same commit, which is the one thing a reproducible build cannot
 #: tolerate -- and FusionAuth carries a database schema, so a silent major
-#: bump is a migration nobody asked for. This digest is the one already
-#: running in ~/MUSE/conduit, so it is known-good on this machine.
+#: bump is a migration nobody asked for. This digest is a known-good
+#: build that has run every stack in this repo.
 #:
 #: To update: pull the new tag, `docker inspect --format='{{index
 #: .RepoDigests 0}}' fusionauth/fusionauth-app:<tag>`, paste it here.
@@ -42,6 +45,59 @@ FUSIONAUTH_IMAGE = (
     "fusionauth/fusionauth-app@sha256:"
     "fe44e9aba57b5343ef8645a346ddcc85b870e2f7b66c1e88c28c6f7c5641d517"
 )
+
+
+def _existing_env_value(project_root: Path, key: str) -> "str | None":
+    """A value already written to this project's .env, or None.
+
+    Generated secrets must be READ BACK before they are minted again, and
+    the reason is not tidiness. FusionAuth applies kickstart.json exactly
+    once, on the first boot of an empty volume, and stores a password
+    HASH. `.env` is what the generated application authenticates with.
+    Regenerating on a re-provision therefore desynchronises the two, and
+    `_merge_env` pinning the old value in `.env` does not save you: the
+    next time the volume is recreated, kickstart seeds the NEW password
+    while `.env` still carries the OLD one, and the only symptom is a 401
+    on the one account every project logs in with.
+
+    Globbed rather than hardcoded to ``infra/development``: the infra
+    directory name is configurable for adopted workspaces.
+    """
+    infra = project_root / "infra"
+    if not infra.is_dir():
+        return None
+    for env_path in sorted(infra.glob("*/.env")):
+        try:
+            text = env_path.read_text()
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() == key and v.strip():
+                return v.strip()
+    return None
+
+
+def _generate_admin_password() -> str:
+    """A password that satisfies FusionAuth's default policy.
+
+    The policy wants length plus mixed character classes, so the classes
+    are placed explicitly rather than hoped for: a rejected password does
+    not fail loudly at provision time, it fails later as a kickstart error
+    buried in the FusionAuth container log.
+
+    No ``!`` or other shell-active characters. This value lands in a
+    ``.env`` read by docker compose, where ``$`` would interpolate and a
+    quote would truncate.
+    """
+    alphabet = string.ascii_letters + string.digits
+    body = "".join(secrets.choice(alphabet) for _ in range(20))
+    return (f"Bz{secrets.choice(string.ascii_uppercase)}"
+            f"{secrets.choice(string.ascii_lowercase)}"
+            f"{secrets.choice(string.digits)}-{body}")
 
 
 class FusionAuthTemplate(InfraTemplate):
@@ -86,7 +142,8 @@ class FusionAuthTemplate(InfraTemplate):
         pg = ctx.find_by_framework("postgres")
         pg_name = pg.name if pg is not None else "postgres"
         own_name = ctx.service.name
-        # Dev defaults; the project owner replaces these in .env for prod.
+        # Dev defaults. Credentials below are generated per project; the
+        # rest of these values are structural and follow the architecture.
         # Email validator in FA rejects underscores in the domain part
         # (RFC 5321 requires the domain be a valid hostname; underscores
         # aren't legal in hostnames). Slugs like ``recipe_box`` produced
@@ -107,8 +164,23 @@ class FusionAuthTemplate(InfraTemplate):
         # `example.com` is reserved for exactly this (RFC 2606) and passes
         # validation, which is why the shipped muvnit project uses it.
         admin_email = f"admin@{email_safe_slug}.example.com"
-        admin_password = "ChangeMe123!"
-        api_key = "bf69486b-4733-4470-a592-f1bfce7af580"
+        # Generated per project, never shared.
+        #
+        # These were a hardcoded password and a hardcoded API key GUID,
+        # identical in every project ever cut from this factory. The API
+        # key is the worse half: it is FusionAuth's ADMIN key, it grants
+        # full tenant control, and one value in a source file meant every
+        # stack on a host answered to the same credential -- including any
+        # stack built by anyone who had read this file.
+        #
+        # Read-back before mint, so a re-provision does not desynchronise
+        # `.env` from the hash FusionAuth stored at kickstart. See
+        # `_existing_env_value`.
+        root = ctx.project_root
+        admin_password = (_existing_env_value(root, "FUSIONAUTH_ADMIN_PASSWORD")
+                          or _generate_admin_password())
+        api_key = (_existing_env_value(root, "FUSIONAUTH_API_KEY")
+                   or str(uuid.uuid4()))
         issuer = f"http://{own_name}:{self.DEFAULT_CONTAINER_PORT}"
 
         kickstart = {
