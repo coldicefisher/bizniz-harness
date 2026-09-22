@@ -13,6 +13,7 @@ up / down <project> compose the generated stack up or down
 smoke <project>     run the deterministic SmokePhase gate (exit 1 on fail)
 test <project>      run tests inside a running service container
 validate <path>     AST symbol/import validation over a workspace
+discover <repo>     profile an existing host system (conventions, auth, gates)
 perf ...            delegate to bizniz.perf_log CLI
 mcp                 launch the Bizniz MCP server (stdio)
 
@@ -294,6 +295,27 @@ def cmd_down(args: argparse.Namespace) -> int:
     return _compose(resolve_project(args.project), "down")
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    from bizniz.discovery import discover, write_profile
+
+    root = Path(args.repo).expanduser()
+    profile = discover(root, host=args.host, verify=not args.no_verify,
+                       log=lambda m: print(m, file=sys.stderr))
+    out_dir = Path(args.out).expanduser() if args.out else root / ".bizniz" / "host"
+    md, js = write_profile(profile, out_dir)
+
+    ok, total = profile.coverage()
+    for name, claim in profile.claims():
+        if claim.evidence == "absent":
+            print(f"—  {name}: {claim.how}")
+    print(f"discover: {profile.host} — {ok}/{total} claims verified, "
+          f"{len(profile.gaps)} gap(s)")
+    print(f"wrote {md}")
+    print(f"wrote {js}")
+    # A profile nothing could be verified against is not a usable contract.
+    return 0 if (ok or args.no_verify) else 1
+
+
 def cmd_smoke(args: argparse.Namespace) -> int:
     from bizniz.driver.smoke_phase import SmokePhase
     from bizniz.planner.types import Milestone
@@ -456,6 +478,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("validate", help="AST symbol/import validation")
     p.add_argument("path", help="workspace dir, project slug, or project path")
     p.set_defaults(fn=cmd_validate)
+
+    p = sub.add_parser("discover",
+                       help="profile an existing host system a new app will live inside")
+    p.add_argument("repo", help="path to the host repository")
+    p.add_argument("--host", default=None, help="display name (default: directory name)")
+    p.add_argument("--out", default=None,
+                   help="where to write PROFILE.md + profile.json "
+                        "(default: <repo>/.bizniz/host)")
+    p.add_argument("--no-verify", action="store_true",
+                   help="skip the live checks; every claim stays 'asserted'")
+    p.set_defaults(fn=cmd_discover)
 
     p = sub.add_parser("perf", help="perf-log analysis (delegates to bizniz.perf_log)")
     p.add_argument("perf_args", nargs=argparse.REMAINDER)
