@@ -66,6 +66,8 @@ def render(profile: HostProfile) -> str:
         _line("JWKS", profile.identity.jwks_url),
         _line("issuer", profile.identity.issuer),
         _line("algorithms", profile.identity.algorithms),
+        _line("accepted audiences", profile.identity.audiences),
+        _line("roles claim", profile.identity.roles_claim),
         _line("roles in use", profile.identity.roles),
         _line("session endpoint", profile.identity.session_endpoint),
         _line("reference implementation", profile.identity.reference_impl),

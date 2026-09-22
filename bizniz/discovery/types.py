@@ -88,6 +88,8 @@ class Identity(BaseModel):
     jwks_url: Claim = Field(default_factory=Claim)
     issuer: Claim = Field(default_factory=Claim)
     algorithms: Claim = Field(default_factory=Claim)
+    audiences: Claim = Field(default_factory=Claim)         # aud values apps accept
+    roles_claim: Claim = Field(default_factory=Claim)       # where roles are read from
     roles: Claim = Field(default_factory=Claim)
     session_endpoint: Claim = Field(default_factory=Claim)  # host endpoint apps reuse
     reference_impl: Claim = Field(default_factory=Claim)    # a working verifier in-tree

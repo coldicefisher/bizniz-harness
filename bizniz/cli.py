@@ -14,6 +14,7 @@ smoke <project>     run the deterministic SmokePhase gate (exit 1 on fail)
 test <project>      run tests inside a running service container
 validate <path>     AST symbol/import validation over a workspace
 discover <repo>     profile an existing host system (conventions, auth, gates)
+hosted <repo>       gate an app hosted inside that system, with a real token
 perf ...            delegate to bizniz.perf_log CLI
 mcp                 launch the Bizniz MCP server (stdio)
 
@@ -316,6 +317,27 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0 if (ok or args.no_verify) else 1
 
 
+def cmd_hosted(args: argparse.Namespace) -> int:
+    from bizniz.gates.hosted import gate
+
+    roles = [r.strip() for r in args.roles.split(",")] if args.roles else None
+    try:
+        result = gate(Path(args.repo).expanduser(), args.app, roles=roles,
+                      with_auth=not args.no_auth,
+                      log=lambda m: print(m, file=sys.stderr))
+    except (FileNotFoundError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    for check in result.checks:
+        print(check.line())
+    for note in result.notes:
+        print(f"note: {note}")
+    print(f"hosted: {'PASSED' if result.passed else 'FAILED'} "
+          f"({len(result.checks)} checks, {len(result.failed)} failed) — app {result.app}")
+    return 0 if result.passed else 1
+
+
 def cmd_smoke(args: argparse.Namespace) -> int:
     from bizniz.driver.smoke_phase import SmokePhase
     from bizniz.planner.types import Milestone
@@ -489,6 +511,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-verify", action="store_true",
                    help="skip the live checks; every claim stays 'asserted'")
     p.set_defaults(fn=cmd_discover)
+
+    p = sub.add_parser("hosted",
+                       help="gate an app hosted inside an existing system (needs `discover` first)")
+    p.add_argument("repo", help="path to the host repository")
+    p.add_argument("--app", default=None,
+                   help="hosted app name (default: the first proxied app in the profile)")
+    p.add_argument("--roles", default=None,
+                   help="comma-separated realm roles the gate token should carry")
+    p.add_argument("--no-auth", action="store_true",
+                   help="skip token minting; check routing and anonymous enforcement only")
+    p.set_defaults(fn=cmd_hosted)
 
     p = sub.add_parser("perf", help="perf-log analysis (delegates to bizniz.perf_log)")
     p.add_argument("perf_args", nargs=argparse.REMAINDER)

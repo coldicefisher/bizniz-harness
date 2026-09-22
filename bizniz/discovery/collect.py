@@ -183,6 +183,31 @@ def collect_identity(root: Path, stack: Stack) -> Identity:
         else:
             ident.realm_url = absent("no realm URL found in compose or env files")
 
+    # Which audiences a hosted app accepts — what a gate token must carry to be let in.
+    for cfg in sorted(root.glob("*/api/app/config.py")):
+        m = re.search(r"oidc_audiences[^=]*=\s*\[([^\]]*)\]", cfg.read_text(errors="replace"))
+        if m:
+            auds = re.findall(r"[\"']([^\"']+)[\"']", m.group(1))
+            if auds:
+                ident.audiences = asserted(
+                    auds, _rel(root, cfg),
+                    note="a token must carry one of these in aud, or it is refused")
+                break
+    else:
+        ident.audiences = absent("no oidc_audiences setting found in a hosted app's config")
+
+    # Where the app looks for roles. Keycloak puts them in realm_access.roles by default,
+    # so if an app reads a flat claim, something must map them there.
+    for cfg in sorted(root.glob("*/api/app/config.py")):
+        m = re.search(r"roles_claim[^=]*=\s*[\"']([^\"']+)[\"']", cfg.read_text(errors="replace"))
+        if m:
+            ident.roles_claim = asserted(
+                m.group(1), _rel(root, cfg),
+                note="tokens must carry the roles in this claim")
+            break
+    else:
+        ident.roles_claim = absent("no roles_claim setting found in a hosted app's config")
+
     # A working verifier in the tree beats a specification of one.
     for candidate in sorted(root.glob("*/api/app/auth.py")) + sorted(root.glob("**/auth/jwt_verify.py")):
         text = candidate.read_text(errors="replace")
