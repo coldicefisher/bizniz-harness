@@ -13,7 +13,7 @@ from typing import Iterable, Optional
 import yaml
 
 from bizniz.discovery.types import (
-    Build, Frontend, HostProfile, HostedApp, Identity, Proxy, Stack, absent, asserted,
+    Boundary, Build, Frontend, HostProfile, HostedApp, Identity, Proxy, Stack, absent, asserted,
 )
 
 COMPOSE_CANDIDATES = [
@@ -361,6 +361,71 @@ def collect_hosted_apps(root: Path, stack: Stack, build: Build) -> list[HostedAp
     return apps
 
 
+# Directories that hold a host's own code, tried in order of how conventional they are.
+CODE_ROOT_CANDIDATES = ("source-code", "src", "services", "apps", "packages", "backend")
+
+
+def collect_boundary(root: Path, stack: Stack, build: Build) -> Boundary:
+    """What a hosted app must not reach into, so it stays carve-off-able.
+
+    A hosted app depends on the host only through its public interfaces — the network, the
+    identity provider, the proxy. Importing the host's code, or building from its base
+    image, welds the two together and quietly ends the possibility of carving the app off.
+    """
+    b = Boundary()
+    hosted = {Path(i).parts[1] if Path(i).parts[0] == ".." else Path(i).parts[0]
+              for i in (stack.includes.value or [])}
+
+    roots = [c for c in CODE_ROOT_CANDIDATES
+             if (root / c).is_dir() and c not in hosted]
+    if not roots:
+        b.code_roots = absent(
+            f"no host code directory among {', '.join(CODE_ROOT_CANDIDATES)}")
+        return b
+    b.code_roots = asserted(roots, "/".join(roots),
+                            note="a hosted app must not import from or reference these")
+
+    # Importable Python names. A package directory at the top of a code root is one
+    # (`core`); so is a package inside a service directory that is not itself a package
+    # (`muse-feed/conduit_feed`). A package *inside* a package is not — `core/services` is
+    # reached as `core.services`, and forbidding the bare name would flag an app's own
+    # `services` module.
+    packages: set[str] = set()
+    for code_root in roots:
+        base = root / code_root
+        for init in base.glob("*/__init__.py"):
+            packages.add(init.parent.name)
+        for init in base.glob("*/*/__init__.py"):
+            service_dir = init.parent.parent
+            if (service_dir / "__init__.py").exists():
+                continue                       # a subpackage, not a top-level name
+            if init.parent.name in ("tests", "test", "migrations", "app"):
+                continue
+            packages.add(init.parent.name)
+        # src layout: contracts/src/openscholar_schema is imported as openscholar_schema.
+        for init in base.glob("*/src/*/__init__.py"):
+            packages.add(init.parent.name)
+    packages -= {"app"}      # every service has one; too generic to forbid by name
+    b.packages = (asserted(sorted(packages), roots[0],
+                           note="importing one of these from a hosted app is a violation")
+                  if packages else absent("no importable packages under the code roots"))
+
+    internals = [f"{r}/" for r in roots]
+    base_targets = [t for t in (build.targets.value or []) if t.endswith("-base")]
+    internals += base_targets
+    if (root / "infra/build").is_dir():
+        internals.append("infra/build/")
+    b.build_internals = asserted(
+        internals, build.bake_file.value or "infra/",
+        note="building FROM the host's base image couples the app to the host's release")
+
+    integration = [p for p in ("infra/", ".bizniz/") if (root / p.rstrip("/")).exists()]
+    b.integration_paths = asserted(
+        integration, "infra/",
+        note="host-side wiring lives here and is expected to name the app")
+    return b
+
+
 def collect(root: Path, host: str, generated_at: str) -> HostProfile:
     stack = collect_stack(root)
     build = collect_build(root)
@@ -372,5 +437,6 @@ def collect(root: Path, host: str, generated_at: str) -> HostProfile:
         frontend=collect_frontend(root),
         build=build,
     )
+    profile.boundary = collect_boundary(root, stack, build)
     profile.hosted_apps = collect_hosted_apps(root, stack, build)
     return profile

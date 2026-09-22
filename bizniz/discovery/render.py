@@ -90,6 +90,16 @@ def render(profile: HostProfile) -> str:
         _line("existing gates", profile.build.gates),
     ]))
 
+    a("\n## Carve-off boundary\n")
+    a("A hosted app depends on the host through the network, the identity provider and the "
+      "proxy — never by importing its code. `bizniz boundary` enforces this.\n")
+    a(_table([
+        _line("host code roots", profile.boundary.code_roots),
+        _line("host packages", profile.boundary.packages),
+        _line("build internals", profile.boundary.build_internals),
+        _line("integration paths", profile.boundary.integration_paths),
+    ]))
+
     if profile.hosted_apps:
         a("\n## Apps already hosted here\n")
         a("These conform to the contract above. Copy them rather than inventing a new shape.\n")

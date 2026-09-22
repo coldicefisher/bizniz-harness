@@ -15,6 +15,7 @@ test <project>      run tests inside a running service container
 validate <path>     AST symbol/import validation over a workspace
 discover <repo>     profile an existing host system (conventions, auth, gates)
 hosted <repo>       gate an app hosted inside that system, with a real token
+boundary <repo>     check a hosted app can still be carved off the host
 perf ...            delegate to bizniz.perf_log CLI
 mcp                 launch the Bizniz MCP server (stdio)
 
@@ -317,6 +318,27 @@ def cmd_discover(args: argparse.Namespace) -> int:
     return 0 if (ok or args.no_verify) else 1
 
 
+def cmd_boundary(args: argparse.Namespace) -> int:
+    from bizniz.gates.boundary import check
+    from bizniz.gates.hosted import load_profile
+
+    repo = Path(args.repo).expanduser()
+    try:
+        result = check(repo, args.app, load_profile(repo), self_describing=set(args.allow))
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    for violation in result.violations:
+        print(violation.line())
+    for skipped in result.skipped:
+        print(f"skipped: {skipped}")
+    print(f"boundary: {'ok' if result.passed else 'FAILED'} "
+          f"({len(result.violations)} violation(s) over {result.checked_files} files) "
+          f"— app {result.app}")
+    return 0 if result.passed else 1
+
+
 def cmd_hosted(args: argparse.Namespace) -> int:
     from bizniz.gates.hosted import gate
 
@@ -522,6 +544,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-auth", action="store_true",
                    help="skip token minting; check routing and anonymous enforcement only")
     p.set_defaults(fn=cmd_hosted)
+
+    p = sub.add_parser("boundary",
+                       help="check a hosted app can still be carved off (needs `discover` first)")
+    p.add_argument("repo", help="path to the host repository")
+    p.add_argument("app", help="the hosted app's directory name")
+    p.add_argument("--allow", action="append", default=[],
+                   help="repo-relative path that may name both sides (repeatable); "
+                        "use for a file that documents the boundary itself")
+    p.set_defaults(fn=cmd_boundary)
 
     p = sub.add_parser("perf", help="perf-log analysis (delegates to bizniz.perf_log)")
     p.add_argument("perf_args", nargs=argparse.REMAINDER)

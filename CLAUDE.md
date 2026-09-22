@@ -503,6 +503,31 @@ Claude-native layer on top of the CLI (NEW 2026-08-04):
   merged into one clustered defect report (read-only; feed to
   /bizniz-fix).
 
+### Working inside an existing system (2026-09-22)
+
+The pipeline provisions greenfield stacks. For work that must live inside a system
+that already exists — Conduit — three deterministic commands, no LLM:
+
+```bash
+bizniz discover <host-repo> --host <Name>   # .bizniz/host/{PROFILE.md,profile.json}
+bizniz hosted   <host-repo> --app <name>    # routing + anonymous refusal + real token accepted
+bizniz boundary <host-repo> <app>           # carve-off still possible?
+```
+
+`bizniz/discovery/` harvests the host's conventions and verifies what it can against
+the running stack; `bizniz/gates/` consumes that profile. The auth contract is derived,
+not assumed: the gate reads `oidc_audiences` and `roles_claim` from the app's own config
+and mints a token that satisfies them, from inside the shared network so `iss` matches.
+
+Three findings from building it, worth not rediscovering:
+
+- Keycloak stamps `iss` with the hostname it was reached on. A token fetched through a
+  published port is refused by services configured for the network hostname.
+- Client-credentials tokens carry `aud: account`; an audience mapper per accepted
+  audience is required.
+- Keycloak puts realm roles in `realm_access.roles`; an app reading a flat `roles`
+  claim needs a role mapper.
+
 ### Pipeline entry point
 
 **Canonical entry point: `examples/v2_build.py`.** The older

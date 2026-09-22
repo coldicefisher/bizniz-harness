@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -241,6 +242,32 @@ def verify(profile: HostProfile, log: Log = lambda _m: None) -> HostProfile:
             profile.gaps.append(
                 f"`docker buildx bake -f {bake} --print` did not resolve targets "
                 f"(exit {code}); the target list is read from the file, unconfirmed")
+
+    # ── the host really imports the packages the boundary forbids ──
+    packages = profile.boundary.packages.value or []
+    roots = profile.boundary.code_roots.value or []
+    if packages and roots:
+        counted: dict[str, int] = {}
+        for pkg in packages:
+            hits = 0
+            for code_root in roots:
+                code, out = _run(["grep", "-rEc", rf"^\s*(from|import)\s+{pkg}(\.|\s|$)",
+                                  "--include=*.py", "-r", code_root], cwd=root, timeout=60)
+                hits += sum(int(n) for n in re.findall(r":(\d+)$", out, re.M) or [])
+            if hits:
+                counted[pkg] = hits
+        if counted:
+            profile.boundary.packages = verified(
+                sorted(counted), "grep for import statements across " + ", ".join(roots),
+                note="the host imports these itself: " +
+                     ", ".join(f"{k} ×{v}" for k, v in sorted(counted.items(),
+                                                              key=lambda kv: -kv[1])[:5]))
+            log(f"boundary: {len(counted)} package(s) the host imports")
+        unused = sorted(set(packages) - set(counted))
+        if unused:
+            profile.gaps.append(
+                "these look importable but the host never imports them, so forbidding them "
+                f"is unproven: {', '.join(unused)}")
 
     # ── the host's own gate scripts exist and are executable ──
     gates = profile.build.gates.value or []

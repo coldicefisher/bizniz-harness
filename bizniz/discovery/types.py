@@ -103,6 +103,15 @@ class Frontend(BaseModel):
     nav_wiring: Claim = Field(default_factory=Claim)        # where a sidebar link is added
 
 
+class Boundary(BaseModel):
+    """What separates a hosted app from the host, so it can still be carved off."""
+
+    code_roots: Claim = Field(default_factory=Claim)      # where the host's own code lives
+    packages: Claim = Field(default_factory=Claim)        # importable names a hosted app must not use
+    build_internals: Claim = Field(default_factory=Claim)  # shared base images, build context
+    integration_paths: Claim = Field(default_factory=Claim)  # where naming the app IS allowed
+
+
 class Build(BaseModel):
     bake_file: Claim = Field(default_factory=Claim)
     targets: Claim = Field(default_factory=Claim)
@@ -121,6 +130,7 @@ class HostProfile(BaseModel):
     identity: Identity = Field(default_factory=Identity)
     frontend: Frontend = Field(default_factory=Frontend)
     build: Build = Field(default_factory=Build)
+    boundary: Boundary = Field(default_factory=Boundary)
     hosted_apps: list[HostedApp] = Field(default_factory=list)
     #: Things discovery looked for and could not establish — the honest gaps.
     gaps: list[str] = Field(default_factory=list)

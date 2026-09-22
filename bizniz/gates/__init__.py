@@ -6,6 +6,9 @@ which is a different set of failures — see that module.
 """
 from __future__ import annotations
 
+from bizniz.gates.boundary import BoundaryResult, Violation
+from bizniz.gates.boundary import check as boundary_check
 from bizniz.gates.hosted import Check, Result, gate, load_profile
 
-__all__ = ["gate", "load_profile", "Check", "Result"]
+__all__ = ["gate", "load_profile", "Check", "Result",
+           "boundary_check", "BoundaryResult", "Violation"]
