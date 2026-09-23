@@ -123,24 +123,10 @@ The `auth_agent` and `auth_orchestrators` packages remain FusionAuth-shaped. The
 prefers the operator path, which is now Keycloak-aware, and only falls back to the legacy
 `AuthAgent` when the factories are not wired — which is tests, and projects mid-migration.
 
-## Decisions taken before K1
+---
 
-- **One realm per application, or one shared realm with a client each?** Conduit uses one
-  realm (`conduit`) with several clients, and a hosted application joins it rather than
-  standing up its own. A standalone generated application probably wants its own realm in
-  its own Keycloak container. Both shapes need to exist; which is the default decides what
-  the architect emits.
-- **Where the realm definition lives.** FusionAuth's kickstart is a file the provisioner
-  renders. A Keycloak realm export is much larger and easily stale; importing a minimal
-  realm and configuring the rest through `kcadm` (as `gates/keycloak.py` already does) may
-  age better than a checked-in export.
-- **What a carve-out does.** A hosted application does not provision an identity provider
-  at all — it verifies against the host's. That is already expressed as `press check`'s
-  hosted profile; the provisioner needs to know not to emit an auth service for it.
-
-## Why this is queued rather than in flight
-
-knowhow is to be rebuilt as a Conduit carve-out, which needs the hosted path and Keycloak
-verification, not a provisioned FusionAuth. That rebuild will exercise exactly the pieces
-K1 and K2 cover, so the order matters: do knowhow's carve-out first, learn from it, and
-let what it proves shape the templates rather than guessing at them now.
+*The open questions this plan started with — one realm or a shared one, an export or a
+minimal import, what a carve-out provisions — are answered under "Decisions taken" above.
+The original sequencing put this work behind knowhow's carve-out rebuild; that order was
+reversed on 2026-09-23, so knowhow is now greenfielded on a harness that already emits
+what the Press runs.*
