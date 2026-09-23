@@ -13,6 +13,7 @@ up / down <project> compose the generated stack up or down
 smoke <project>     run the deterministic SmokePhase gate (exit 1 on fail)
 test <project>      run tests inside a running service container
 validate <path>     AST symbol/import validation over a workspace
+standard <project>  check a project against the Press AI-application standard
 discover <repo>     profile an existing host system (conventions, auth, gates)
 hosted <repo>       gate an app hosted inside that system, with a real token
 boundary <repo>     check a hosted app can still be carved off the host
@@ -297,6 +298,19 @@ def cmd_down(args: argparse.Namespace) -> int:
     return _compose(resolve_project(args.project), "down")
 
 
+def cmd_standard(args: argparse.Namespace) -> int:
+    from bizniz.gates.standard import StandardUnavailable, gate
+
+    project = resolve_project(args.project)
+    try:
+        ok = gate(project, stage=args.stage, profile=args.profile,
+                  log=lambda m: print(m, file=sys.stderr))
+    except StandardUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 0 if ok else 1
+
+
 def cmd_discover(args: argparse.Namespace) -> int:
     from bizniz.discovery import discover, write_profile
 
@@ -522,6 +536,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("validate", help="AST symbol/import validation")
     p.add_argument("path", help="workspace dir, project slug, or project path")
     p.set_defaults(fn=cmd_validate)
+
+    p = sub.add_parser("standard",
+                       help="check a project against the Press AI-application standard")
+    p.add_argument("project", help="project slug or path")
+    p.add_argument("--stage", default=None,
+                   help="closed-beta | open-beta | live (stage-gated rules bind from there)")
+    p.add_argument("--profile", default=None, choices=("standalone", "hosted"))
+    p.set_defaults(fn=cmd_standard)
 
     p = sub.add_parser("discover",
                        help="profile an existing host system a new app will live inside")
