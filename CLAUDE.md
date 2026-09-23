@@ -503,6 +503,25 @@ Claude-native layer on top of the CLI (NEW 2026-08-04):
   merged into one clustered defect report (read-only; feed to
   /bizniz-fix).
 
+### Queued: FusionAuth → Keycloak (2026-09-22)
+
+The Press runs Keycloak; this harness provisions FusionAuth, so every generated
+application authenticates against a provider the Press does not operate. **All skeletons
+and the provisioning path move to Keycloak.** The plan, with the real file counts and the
+decisions to take first, is `docs/keycloak_migration.md`. Not started.
+
+`bizniz/gates/keycloak.py` and `bizniz/discovery/` already solve the three things that
+make Keycloak awkward (issuer follows the hostname; `aud: account` needs an audience
+mapper; realm roles need a role mapper for a flat `roles` claim). Reuse them.
+
+### The Press standard (2026-09-22)
+
+`bizniz standard <project>` checks a generated project against the Press AI-application
+guidelines, via the `press-standard` package (`~/MUSE/press-standard`, `pip install -e`).
+The layout — `infra/<env>/`, `source-code/`, `ops/`, `review/`, `tests/` — is defined
+there, not here, so this generator is held to it like anything a person writes. It
+currently fails: knowhow scores 3/9.
+
 ### Working inside an existing system (2026-09-22)
 
 The pipeline provisions greenfield stacks. For work that must live inside a system
