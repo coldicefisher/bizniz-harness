@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bizniz.architect.architect import Architect
 from bizniz.auth_agent.agent import AuthAgent
-from bizniz.auth_operator import FusionAuthOperator
+from bizniz.auth_operator import FusionAuthOperator, KeycloakOperator
 from bizniz.auth_orchestrators.fusionauth_orchestrator import FusionAuthOrchestrator
 from bizniz.auth_planner import AuthPlanner
 from bizniz.code_reviewer.agent import CodeReviewer
@@ -102,6 +102,59 @@ def _on_status(prefix: str = ""):
         line = f"[{ts}] {prefix}{msg}" if prefix else f"[{ts}] {msg}"
         print(line, flush=True)
     return cb
+
+
+def _read_generated_env(project_root: Path) -> dict:
+    """Every key the provisioner wrote for this project.
+
+    `.env.host` carries host-perspective values (URLs a container must not be given);
+    `.env` carries the container ones. Read in that order so the host view wins where
+    both define a key, because this process runs on the host.
+    """
+    values: dict[str, str] = {}
+    for env_name in (".env", ".env.host"):
+        env_path = project_root / "infra" / "development" / env_name
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
+
+
+def _resolve_keycloak(project_root: Path) -> dict:
+    """How to reach the realm this project provisioned, from the host."""
+    env = _read_generated_env(project_root)
+    host_url = (env.get("KEYCLOAK_HOST_URL")
+                or os.environ.get("KEYCLOAK_HOST_URL", "http://localhost:8080"))
+    return {
+        "base_url": host_url,
+        "realm": env.get("KEYCLOAK_REALM") or os.environ.get("KEYCLOAK_REALM", "app"),
+        "client_id": (env.get("KEYCLOAK_CLIENT_ID")
+                      or os.environ.get("KEYCLOAK_CLIENT_ID", "app-api")),
+        "client_secret": (env.get("KEYCLOAK_CLIENT_SECRET")
+                          or os.environ.get("KEYCLOAK_CLIENT_SECRET", "")),
+        "admin_username": env.get("KEYCLOAK_ADMIN_USERNAME", "admin"),
+        "admin_password": (env.get("KEYCLOAK_ADMIN_PASSWORD")
+                           or os.environ.get("KEYCLOAK_ADMIN_PASSWORD", "")),
+    }
+
+
+def _provisioned_provider(project_root: Path) -> str:
+    """Which identity provider this project actually has.
+
+    Read from what the provisioner emitted rather than assumed, so a project cut before
+    the cutover still gets the operator that matches it.
+    """
+    env = _read_generated_env(project_root)
+    if any(k.startswith("KEYCLOAK_") for k in env):
+        return "keycloak"
+    if any(k.startswith("FUSIONAUTH_") for k in env):
+        return "fusionauth"
+    return "keycloak"
 
 
 def _resolve_fa_endpoint(project_root: Path) -> tuple[str, str]:
@@ -1103,6 +1156,12 @@ def _build_pipeline(args, on_status) -> V2Pipeline:
         return AuthPlanner(client=auth_client, on_status=on_status)
 
     def auth_operator_factory(architecture):
+        # Keycloak for anything provisioned since the cutover; FusionAuth for projects
+        # that already have a tenant, so re-running a build does not strand them.
+        if _provisioned_provider(project_root) == "keycloak":
+            return KeycloakOperator(on_status=on_status,
+                                    **_resolve_keycloak(project_root))
+
         fa_url, fa_key = _resolve_fa_endpoint(project_root)
         fa_orch = FusionAuthOrchestrator(
             base_url=fa_url,

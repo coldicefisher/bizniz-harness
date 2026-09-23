@@ -93,6 +93,7 @@ class KeycloakOperator:
             user.login_verified = self._smoke_login(user.email, user.password)
 
         manifest = AuthManifest(
+            provider="keycloak",
             fa_url=self.realm_url,          # the manifest's field name predates Keycloak
             primary_app_id=self.client_id,
             tenant_id=self.realm,

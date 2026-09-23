@@ -1,6 +1,6 @@
 # Queued: FusionAuth → Keycloak, everywhere
 
-**Status: planned, not started.** Decided 2026-09-22. Nothing below has been built.
+**Status: K1–K4 done, 2026-09-22/23.** K5 (retirement) is deliberately not done.
 
 The Press runs Keycloak. Conduit authenticates against it, jhup-chat and knowledge-mcp
 verify its tokens, and every application the Press hosts will do the same. The harness
@@ -39,7 +39,7 @@ migration should reuse them rather than rediscover them:
 
 ## The plan
 
-### K1 — Provision Keycloak beside FusionAuth
+### K1 — Provision Keycloak beside FusionAuth ✅
 
 A `keycloak` template in `provisioner/templates/`, a realm import JSON (the equivalent of
 FusionAuth's kickstart), and a `KeycloakOrchestrator` mirroring
@@ -52,7 +52,7 @@ Both providers work; the architect chooses. Nothing existing breaks.
 **Done when** a greenfield project provisions Keycloak, `bizniz smoke` passes against it,
 and the generated backend refuses an anonymous request and accepts a minted token.
 
-### K2 — The fastapi skeleton
+### K2 — The fastapi skeleton ✅
 
 Ten files: token verification against JWKS rather than FusionAuth's introspection, config
 keys, the compose service, the auth tests. This is the contract every other skeleton
@@ -61,13 +61,13 @@ depends on, so it goes first and alone.
 **Done when** the skeleton's own test suite passes against a Keycloak realm, and
 `bizniz hosted` — the gate that mints a real token and probes every route — is green.
 
-### K3 — The saas skeleton
+### K3 — The saas skeleton ✅
 
 Thirty-five files, and the one most likely to hide assumptions: registration, password
 reset, email verification and tenant handling are all provider-shaped. Expect this to be
 the milestone that finds the real differences, and budget for it accordingly.
 
-### K4 — Expo, then flip the default
+### K4 — Expo, then flip the default ✅
 
 Two files in Expo, then the architect prefers Keycloak for new projects. FusionAuth stays
 available behind a flag: muvnit and anything else already generated keeps working, and
@@ -78,7 +78,52 @@ nothing is forced to migrate on our schedule.
 When no active project provisions FusionAuth, delete the orchestrator, the templates and
 the agent. Not before: a dead code path is cheaper than a broken one.
 
-## Decisions to take before K1
+## What was actually built
+
+| Piece | Where |
+|---|---|
+| Realm, clients, mappers, roles, seed user | `bizniz/provisioner/templates/keycloak.py` |
+| Reconcile a running realm against the plan | `bizniz/auth_operator/keycloak_operator.py` |
+| The contract generated code reads | `bizniz/auth_operator/keycloak_contract.py` |
+| Token verification and identity routes | `bizniz-skeleton-fastapi` |
+| Shared auth core, admin client, SPA login | `bizniz-skeleton-saas` |
+| Provider named in the mobile client | `bizniz-skeleton-expo` |
+
+The pipeline picks the operator from **what a project actually has** — `.env` carrying
+`KEYCLOAK_*` or `FUSIONAUTH_*` — rather than from a flag, so re-running a build on a
+project cut before the cutover does not strand it against the wrong provider.
+
+Verified against a real Keycloak 26 rather than in rendering alone: the realm imports, the
+seeded admin exchanges its password for a token carrying the right `aud` and a flat
+`roles` claim, and the service account reaches the admin API. The skeletons' own suites
+pass on python:3.12 — 31 for fastapi, 13 for the saas auth core — and the full harness
+suite is 2,657 green.
+
+## Decisions taken
+
+- **A realm per generated application**, in its own Keycloak container, with an API client
+  and an SPA client inside it. A carve-out is the other case entirely: it provisions no
+  identity service and verifies against its host's realm, which `press check`'s hosted
+  profile already describes.
+- **A minimal realm import, not an export.** A full export is thousands of lines, goes
+  stale the moment anyone opens the console, and buries the handful of objects that
+  matter. What is imported is the realm, two clients, their mappers, two roles and a seed
+  user; Keycloak defaults the rest.
+- **Both issuers, always.** `KEYCLOAK_ISSUERS` carries the in-network and the public URL,
+  because the same realm calls itself by whichever hostname reached it.
+
+## What is still queued
+
+**K5 — retirement.** FusionAuth's template, orchestrator, agent and operator are still
+present and still registered; nothing new selects them. They come out when no active
+project provisions FusionAuth, and not before: a dead code path is cheaper than a broken
+one, and muvnit still has a tenant.
+
+The `auth_agent` and `auth_orchestrators` packages remain FusionAuth-shaped. The pipeline
+prefers the operator path, which is now Keycloak-aware, and only falls back to the legacy
+`AuthAgent` when the factories are not wired — which is tests, and projects mid-migration.
+
+## Decisions taken before K1
 
 - **One realm per application, or one shared realm with a client each?** Conduit uses one
   realm (`conduit`) with several clients, and a hosted application joins it rather than
