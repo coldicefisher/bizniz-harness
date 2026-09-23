@@ -10,7 +10,7 @@ Project name: {project_name}
 Decompose this into a service-based architecture. For each service, specify:
 - name: short identifier (e.g. "backend", "frontend", "db", "auth")
 - service_type: one of "backend", "frontend", "database", "cache", "proxy", "worker", "auth"
-- framework: the framework to use (e.g. "fastapi", "react", "angular", "nginx", "postgres", "redis", "fusionauth")
+- framework: the framework to use (e.g. "fastapi", "react", "angular", "nginx", "postgres", "redis", "keycloak")
 - language: primary language ("python", "typescript", "yaml", "sql")
 - description: what this service does
 - workspace_name: directory name for the service source code (e.g. "backend", "frontend")
@@ -48,8 +48,8 @@ or any concept of "user"):
 - When the problem doesn't imply any user identity, skip the auth service
   entirely.
 - When auth is needed (FusionAuth default): add an auth service with
-  framework="fusionauth", service_type="auth", language="yaml",
-  workspace_name="fusionauth", port=9011, skeleton="none".
+  framework="keycloak", service_type="auth", language="yaml",
+  workspace_name="keycloak", port=8080, skeleton="none".
 - FusionAuth REQUIRES postgres. If you add a fusionauth service, you MUST
   also add a postgres service: framework="postgres", service_type="database",
   language="sql", workspace_name="postgres", port=5432, skeleton="none".

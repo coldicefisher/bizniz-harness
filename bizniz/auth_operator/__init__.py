@@ -1,4 +1,7 @@
-"""FusionAuthOperator — deterministic FA materialization.
+"""Auth operators — deterministic identity-provider materialization.
+
+KeycloakOperator is what new projects use; FusionAuthOperator remains for
+projects cut before the cutover (see docs/keycloak_migration.md).
 
 Takes an AuthSpec from the AuthPlanner and makes FusionAuth match it.
 Owns every FA quirk in one place:
@@ -24,9 +27,13 @@ from bizniz.auth_operator.manifest import (
 from bizniz.auth_operator.operator import (
     FusionAuthOperator, FusionAuthOperatorError,
 )
+from bizniz.auth_operator.keycloak_operator import (
+    KeycloakOperator, KeycloakOperatorError,
+)
 
 __all__ = [
-    "AuthManifest", "FusionAuthOperator", "FusionAuthOperatorError",
+    "AuthManifest", "KeycloakOperator", "KeycloakOperatorError",
+    "FusionAuthOperator", "FusionAuthOperatorError",
     "RoleManifest", "SigningKeyInfo", "UserManifest",
     "generate_code_examples",
     "render_auth_contract",

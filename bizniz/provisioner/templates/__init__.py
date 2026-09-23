@@ -22,12 +22,17 @@ from bizniz.provisioner.templates.base import (
 # Register concrete templates so ``lookup()`` can find them.
 from bizniz.provisioner.templates.postgres import PostgresTemplate
 from bizniz.provisioner.templates.redis import RedisTemplate
+from bizniz.provisioner.templates.keycloak import KeycloakTemplate
 from bizniz.provisioner.templates.fusionauth import FusionAuthTemplate
 from bizniz.provisioner.templates.app_python import PythonAppTemplate
 from bizniz.provisioner.templates.app_typescript import TypeScriptAppTemplate
 
 register("postgres", PostgresTemplate())
 register("redis", RedisTemplate())
+# Keycloak is what the Press runs, and what a generated stack provisions.
+register("keycloak", KeycloakTemplate())
+# FusionAuth remains registered for projects cut before the cutover; nothing
+# new selects it (see docs/keycloak_migration.md).
 register("fusionauth", FusionAuthTemplate())
 # Generic app-service Dockerfile/requirements producers used when no skeleton.
 register("__python_app__", PythonAppTemplate())
@@ -42,6 +47,7 @@ __all__ = [
     "all_templates",
     "PostgresTemplate",
     "RedisTemplate",
+    "KeycloakTemplate",
     "FusionAuthTemplate",
     "PythonAppTemplate",
     "TypeScriptAppTemplate",
