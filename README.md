@@ -143,6 +143,24 @@ Each one exits non-zero on failure, so they chain:
 bizniz up p && bizniz smoke p && bizniz test p && echo GREEN
 ```
 
+### I want to build inside a system that already exists
+
+Conduit, or any host with its own conventions, identity provider and proxy. Profile
+it once, then gate what you build against the running thing.
+
+```bash
+bizniz discover ~/MUSE/conduit --host Conduit   # writes .bizniz/host/PROFILE.md
+bizniz hosted   ~/MUSE/conduit --app jhup_chat  # routes + auth, with a real token
+bizniz boundary ~/MUSE/conduit jhup_chat        # can it still be carved off?
+```
+
+`discover` marks every claim `verified` (a command ran, an endpoint answered) or
+`asserted` (read from a file), so the profile is held to the same standard as the
+gates. `hosted` mints a token from the host's own identity provider and checks each
+route twice: refused anonymously, accepted with a bearer. `boundary` fails if the app
+imports the host's packages, builds from its base image, or the host starts naming the
+app — the couplings that quietly end a carve-off.
+
 ### I have a broken project and I want it fixed
 
 From a Claude Code session in this repo:

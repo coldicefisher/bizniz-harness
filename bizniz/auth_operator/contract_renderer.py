@@ -1,8 +1,8 @@
 """AUTH_CONTRACT.md renderer.
 
-Pure render: AuthManifest → markdown. The manifest reflects what
-FusionAuth actually has, so the contract can NEVER claim a user or
-role that doesn't exist in FA — that whole class of v1/v2 bug
+Pure render: AuthManifest → markdown, dispatching on the manifest's
+provider. The manifest reflects what the identity provider actually
+has, so the contract can NEVER claim a user or role that doesn't exist — that whole class of v1/v2 bug
 (``AuthAgent: audit FAIL [test_users_in_fa]``) goes away by
 construction.
 """
@@ -12,7 +12,16 @@ from bizniz.auth_operator.manifest import AuthManifest
 
 
 def render_auth_contract(manifest: AuthManifest) -> str:
-    """Render AUTH_CONTRACT.md from the post-apply manifest."""
+    """Render AUTH_CONTRACT.md from the post-apply manifest.
+
+    Dispatches on the provider: the two APIs share nothing beyond issuing a JWT, so a
+    FusionAuth contract handed to code talking to Keycloak is worse than no contract.
+    """
+    if manifest.provider == "keycloak":
+        from bizniz.auth_operator.keycloak_contract import render_keycloak_contract
+
+        return render_keycloak_contract(manifest)
+
     lines: list[str] = []
     lines.append("# Auth Contract")
     lines.append("")

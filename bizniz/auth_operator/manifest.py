@@ -51,7 +51,15 @@ class ApplicationManifest(BaseModel):
 
 
 class AuthManifest(BaseModel):
-    """Snapshot of the FA configuration FusionAuthOperator established."""
+    """Snapshot of the identity configuration the operator established.
+
+    `provider` decides how the contract is rendered: the two providers' APIs have
+    nothing in common beyond issuing a JWT, so a contract written for one is actively
+    misleading for the other.
+    """
+    provider: str = "fusionauth"
+    # The provider's base URL. Named for FusionAuth because it predates the cutover;
+    # for Keycloak it holds the realm URL.
     fa_url: str
     primary_app_id: str
     tenant_id: str
