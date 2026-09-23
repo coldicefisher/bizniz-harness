@@ -32,6 +32,9 @@ SKIP_DIRS = {"node_modules", ".angular", "dist", "build", "__pycache__", ".pytes
 TEXT_SUFFIXES = {".py", ".ts", ".js", ".json", ".yml", ".yaml", ".sh", ".conf", ".ini",
                  ".toml", ".html", ".scss", ".css", ".txt", ".cfg", ".hcl", ""}
 TS_IMPORT = re.compile(r"""(?:from|import)\s*\(?\s*['"]([^'"]+)['"]""")
+#: The path-looking token around a match, so a reference can be resolved rather than
+#: matched as a bare substring.
+PATH_TOKEN = re.compile(r"[\w./-]*[\w/-]")
 #: Documentation describes the boundary, so it necessarily names both sides.
 DOC_SUFFIXES = {".md", ".rst"}
 
@@ -75,6 +78,68 @@ def _readable(path: Path) -> Optional[str]:
 
 def _line_of(text: str, index: int) -> int:
     return text.count("\n", 0, index) + 1
+
+
+def _path_around(text: str, start: int, end: int) -> Optional[str]:
+    """The whole path-looking token a match sits inside.
+
+    `../source-code/api:/app` in a compose file matches on `source-code/`; what decides
+    whether that is the app's own or the host's is the rest of the token.
+    """
+    left = start
+    while left > 0 and (text[left - 1].isalnum() or text[left - 1] in "./_-"):
+        left -= 1
+    right = end
+    while right < len(text) and (text[right].isalnum() or text[right] in "./_-"):
+        right += 1
+    token = text[left:right].strip()
+    return token or None
+
+
+def _compose_context(text: str, index: int) -> Optional[str]:
+    """The `context:` a compose `dockerfile:` at `index` is resolved against.
+
+    Compose resolves `dockerfile:` relative to the build CONTEXT, not to the compose
+    file — so `dockerfile: ../../infra/build/api/Dockerfile` beside
+    `context: ../source-code/api` points inside the app, and resolving it the obvious way
+    lands in the host and reports a violation that does not exist.
+    """
+    line_start = text.rfind("\n", 0, index) + 1
+    if not text[line_start:index + 40].lstrip().startswith("dockerfile:"):
+        return None
+    preceding = text[:line_start]
+    context_at = preceding.rfind("context:")
+    if context_at < 0:
+        return None
+    line_end = preceding.find("\n", context_at)
+    value = preceding[context_at + len("context:"):line_end if line_end > 0 else None]
+    return value.strip() or None
+
+
+def _stays_inside(app_dir: Path, source_file: Path, token: str,
+                  base: Optional[str] = None) -> bool:
+    """Whether a referenced path lands inside the application.
+
+    Resolved relative to the file that names it — or to `base`, for the one case where
+    the file format says otherwise.
+
+    The path must **exist** inside the app. Without that, any string resolves somewhere
+    plausible and the rule stops catching anything: `FROM host-base:latest` is an image
+    name, not a path, and resolving it lands inside the app by accident.
+    """
+    if token.startswith("/"):
+        return False
+    try:
+        start = source_file.parent
+        if base:
+            start = (start / base).resolve()
+        target = (start / token).resolve()
+        app = app_dir.resolve()
+    except (OSError, ValueError):
+        return False
+    if not (target == app or app in target.parents):
+        return False
+    return target.exists()
 
 
 def check(repo: Path, app_name: str, profile: HostProfile,
@@ -127,6 +192,14 @@ def check(repo: Path, app_name: str, profile: HostProfile,
 
         if internal_ref:
             for m in internal_ref.finditer(text):
+                token = _path_around(text, m.start(), m.end())
+                base = (_compose_context(text, m.start())
+                        if path.suffix in {".yml", ".yaml"} else None)
+                if token and _stays_inside(app_dir, path, token, base=base):
+                    # The app's OWN source-code/ or infra/build/. A carve-out that
+                    # follows the standard layout has both, so the name alone is not
+                    # evidence of anything — only a path that escapes the app is.
+                    continue
                 result.violations.append(Violation(
                     "host-internals", f"{rel}:{_line_of(text, m.start())}",
                     f"references host build internals '{m.group(0)}'"))
